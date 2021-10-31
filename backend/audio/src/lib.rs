@@ -2,13 +2,15 @@ mod hls_source;
 
 use core::time;
 use std::{
+    collections::VecDeque,
     io::{BufReader, Cursor},
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc, Mutex, Weak},
     thread::{self},
 };
 
 use async_trait::async_trait;
 use eyre::Result;
+use hls_source::HlsSource;
 use log::{debug, info, warn};
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
@@ -22,8 +24,9 @@ pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
     pub sink: rodio::Sink,
+    source_sink: Mutex<Weak<std::sync::Mutex<Vec<i16>>>>,
     downloader: Box<dyn Downloader>,
-    done: Arc<Mutex<bool>>,
+    done: Arc<std::sync::Mutex<bool>>,
 }
 
 impl HlsPlayer {
@@ -35,7 +38,7 @@ impl HlsPlayer {
         // NOTICE(emily): this is absolutely fucked I should not be forced
         // to do such fuckery for a fucking audio output
         let (tx, rx) = mpsc::channel();
-        let done = Arc::new(Mutex::new(false));
+        let done = Arc::new(std::sync::Mutex::new(false));
         let tdone = done.clone();
         thread::spawn(move || -> Result<_> {
             let (stream, handle) = rodio::OutputStream::try_default()?;
@@ -61,6 +64,7 @@ impl HlsPlayer {
         Ok(Self {
             playlist,
             sink,
+            source_sink: Default::default(),
             done,
             downloader,
         })
@@ -73,16 +77,32 @@ impl HlsPlayer {
             .enumerate()
         {
             let downloaded = self.downloader.download(&s.uri).await?;
-            // let downloaded = { self.downloader.download(&s.uri).await? };
             std::fs::write(&format!("test/test_{}.mp3", i), &downloaded)?;
             let cursor = Cursor::new(downloaded);
-            let decoder = Decoder::new_mp3(cursor)
-                .map_err(|err| {
-                    warn!("Decoder for {} failed: {}", i, err);
-                    err
-                })?
-                .periodic_access(time::Duration::from_millis(5), move |src| {});
-            self.sink.append(decoder);
+            let mut decoder = Decoder::new_mp3(cursor).map_err(|err| {
+                warn!("Decoder for {} failed: {}", i, err);
+                err
+            })?;
+
+            // If we havent made our source yet, make it now
+            {
+                let mut source_sink = self.source_sink.lock().unwrap();
+
+                if source_sink.upgrade().is_none() {
+                    let (source, sink) =
+                        HlsSource::new(&mut decoder, self.playlist.target_duration).unwrap();
+                    *source_sink = sink;
+                    self.sink.append(source);
+                }
+            }
+
+            let guard = self.source_sink.lock().unwrap();
+            let upgraded = guard.upgrade().unwrap();
+            {
+                let mut source_sink = upgraded.lock().unwrap();
+                source_sink.extend(decoder);
+            }
+
             warn!("Appended {} successfully", i);
         }
         info!("Done downloading");
