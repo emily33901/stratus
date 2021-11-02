@@ -2,9 +2,11 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{self, AtomicUsize},
-        Arc, Mutex, RwLock, Weak,
+        Arc, RwLock, Weak,
     },
 };
+
+use tokio::sync::Mutex;
 
 use eyre::Result;
 
@@ -43,9 +45,13 @@ impl Iterator for HlsSource {
     type Item = i16;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let buffer = self.buffer.lock().unwrap();
+        let buffer = self.buffer.blocking_lock();
         self.r#where += 1;
-        Some(buffer[self.r#where])
+        if self.r#where < buffer.len() {
+            Some(buffer[self.r#where])
+        } else {
+            None
+        }
     }
 }
 

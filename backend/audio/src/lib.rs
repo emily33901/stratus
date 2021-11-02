@@ -4,7 +4,7 @@ use core::time;
 use std::{
     collections::VecDeque,
     io::{BufReader, Cursor},
-    sync::{mpsc, Arc, Mutex, Weak},
+    sync::{mpsc, Arc, Weak},
     thread::{self},
 };
 
@@ -14,6 +14,7 @@ use hls_source::HlsSource;
 use log::{debug, info, warn};
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
+use tokio::sync::Mutex;
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -24,9 +25,9 @@ pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
     pub sink: rodio::Sink,
-    source_sink: Mutex<Weak<std::sync::Mutex<Vec<i16>>>>,
+    source_sink: Mutex<Weak<Mutex<Vec<i16>>>>,
     downloader: Box<dyn Downloader>,
-    done: Arc<std::sync::Mutex<bool>>,
+    done: Arc<Mutex<bool>>,
 }
 
 impl HlsPlayer {
@@ -38,7 +39,7 @@ impl HlsPlayer {
         // NOTICE(emily): this is absolutely fucked I should not be forced
         // to do such fuckery for a fucking audio output
         let (tx, rx) = mpsc::channel();
-        let done = Arc::new(std::sync::Mutex::new(false));
+        let done = Arc::new(Mutex::new(false));
         let tdone = done.clone();
         thread::spawn(move || -> Result<_> {
             let (stream, handle) = rodio::OutputStream::try_default()?;
@@ -47,7 +48,7 @@ impl HlsPlayer {
 
             loop {
                 {
-                    let done = tdone.lock().unwrap();
+                    let done = tdone.blocking_lock();
                     if *done {
                         break;
                     }
@@ -86,7 +87,7 @@ impl HlsPlayer {
 
             // If we havent made our source yet, make it now
             {
-                let mut source_sink = self.source_sink.lock().unwrap();
+                let mut source_sink = self.source_sink.lock().await;
 
                 if source_sink.upgrade().is_none() {
                     let (source, sink) =
@@ -96,11 +97,29 @@ impl HlsPlayer {
                 }
             }
 
-            let guard = self.source_sink.lock().unwrap();
+            let guard = self.source_sink.lock().await;
             let upgraded = guard.upgrade().unwrap();
             {
-                let mut source_sink = upgraded.lock().unwrap();
-                source_sink.extend(decoder);
+                let mut source_sink = upgraded.lock().await;
+
+                let channels = decoder.current_frame_len().unwrap_or_else(|| {
+                    warn!("Failed to get frame size");
+                    0
+                });
+
+                let mut data: Vec<i16> = decoder.into_iter().collect();
+
+                // for _ in 0..channels {
+                //     data.pop();
+                // }
+
+                let mut iter = data.into_iter();
+
+                for _ in 0..channels {
+                    iter.next();
+                }
+
+                source_sink.extend(iter);
             }
 
             warn!("Appended {} successfully", i);
@@ -123,7 +142,7 @@ impl HlsPlayer {
     pub fn stop(&self) -> Result<()> {
         info!("Stopping playback");
         self.sink.stop();
-        let mut done = self.done.lock().unwrap();
+        let mut done = self.done.blocking_lock();
         *done = true;
         Ok(())
     }

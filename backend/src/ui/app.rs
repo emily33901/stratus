@@ -202,5 +202,3 @@ impl App {
         Command::none()
     }
 }
-
-assert_impl_all!(rodio::Sink: Send, Sync);
