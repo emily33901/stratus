@@ -1,20 +1,23 @@
 mod hls_source;
 
-use core::time;
+use core::{slice, time};
 use std::{
     collections::VecDeque,
     io::{BufReader, Cursor},
-    sync::{mpsc, Arc, Weak},
+    sync::{mpsc, Arc, Once, Weak},
     thread::{self},
 };
 
 use async_trait::async_trait;
 use eyre::Result;
-use hls_source::HlsSource;
+use hls_source::HlsReader;
 use log::{debug, info, warn};
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
-use tokio::sync::Mutex;
+use tokio::{
+    runtime,
+    sync::{Mutex, OnceCell},
+};
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -25,10 +28,12 @@ pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
     pub sink: rodio::Sink,
-    source_sink: Mutex<Weak<Mutex<Vec<i16>>>>,
+    source_sink: Arc<HlsReader>,
     downloader: Box<dyn Downloader>,
     done: Arc<Mutex<bool>>,
 }
+
+static START: OnceCell<u32> = OnceCell::const_new();
 
 impl HlsPlayer {
     pub fn new(playlist: &str, downloader: Box<dyn Downloader>) -> Result<Self> {
@@ -73,56 +78,23 @@ impl HlsPlayer {
 
     pub async fn download(&self) -> Result<()> {
         // Try and download all segments of the playlist and append them to the sink
+        let reader = HlsReader::default();
+
         for (i, s) in self.playlist.segments[..self.playlist.segments.len() - 1]
             .iter()
             .enumerate()
         {
             let downloaded = self.downloader.download(&s.uri).await?;
             std::fs::write(&format!("test/test_{}.mp3", i), &downloaded)?;
-            let cursor = Cursor::new(downloaded);
-            let mut decoder = Decoder::new_mp3(cursor).map_err(|err| {
-                warn!("Decoder for {} failed: {}", i, err);
-                err
-            })?;
+            reader.add(&downloaded);
 
-            // If we havent made our source yet, make it now
-            {
-                let mut source_sink = self.source_sink.lock().await;
-
-                if source_sink.upgrade().is_none() {
-                    let (source, sink) =
-                        HlsSource::new(&mut decoder, self.playlist.target_duration).unwrap();
-                    *source_sink = sink;
-                    self.sink.append(source);
-                }
+            if i == 0 {
+                let decoder =
+                    Decoder::new_mp3(reader.clone())?.delay(time::Duration::from_secs_f32(2.0));
+                self.sink.append(decoder);
             }
 
-            let guard = self.source_sink.lock().await;
-            let upgraded = guard.upgrade().unwrap();
-            {
-                let mut source_sink = upgraded.lock().await;
-
-                let channels = decoder.current_frame_len().unwrap_or_else(|| {
-                    warn!("Failed to get frame size");
-                    0
-                });
-
-                let mut data: Vec<i16> = decoder.into_iter().collect();
-
-                // for _ in 0..channels {
-                //     data.pop();
-                // }
-
-                let mut iter = data.into_iter();
-
-                for _ in 0..channels {
-                    iter.next();
-                }
-
-                source_sink.extend(iter);
-            }
-
-            warn!("Appended {} successfully", i);
+            warn!("Appended {} successfully ({})", i, reader.len());
         }
         info!("Done downloading");
         Ok(())
@@ -145,5 +117,11 @@ impl HlsPlayer {
         let mut done = self.done.blocking_lock();
         *done = true;
         Ok(())
+    }
+}
+
+impl Drop for HlsPlayer {
+    fn drop(&mut self) {
+        *self.done.blocking_lock() = true;
     }
 }
