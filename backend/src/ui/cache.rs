@@ -5,12 +5,17 @@ use std::{
     fmt::Debug,
 };
 
+use iced::{image::Handle, Image};
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
+
 use log::{info, warn};
 
+use crate::sc;
+
 pub struct Cache<K, V> {
-    loaded: HashMap<K, V>,
-    needs_loading: RefCell<Vec<K>>,
-    blacklist: RefCell<HashSet<K>>,
+    loaded: RwLock<HashMap<K, V>>,
+    needs_loading: Mutex<Vec<K>>,
+    blacklist: Mutex<HashSet<K>>,
 }
 
 impl<K, V> Default for Cache<K, V>
@@ -28,33 +33,48 @@ where
 {
     pub fn new() -> Self {
         Self {
-            loaded: HashMap::new(),
-            needs_loading: RefCell::new(Vec::new()),
-            blacklist: RefCell::new(HashSet::new()),
+            loaded: RwLock::new(HashMap::new()),
+            needs_loading: Mutex::new(Vec::new()),
+            blacklist: Mutex::new(HashSet::new()),
         }
     }
 
-    pub fn try_get(&self, key: &K) -> Option<&V> {
-        match { self.loaded.get(&key) } {
+    pub fn try_get(&self, key: &K) -> Option<MappedRwLockReadGuard<V>> {
+        let read = self.loaded.read();
+        RwLockReadGuard::try_map(read, |read| match read.get(&key) {
             None => {
-                if self.blacklist.borrow().contains(&key) {
+                if self.blacklist.lock().contains(&key) {
                     warn!("{:?} is already blacklisted. NOT trying again", key);
                 } else {
-                    self.blacklist.borrow_mut().insert(key.clone());
-                    self.needs_loading.borrow_mut().push(key.clone());
+                    self.blacklist.lock().insert(key.clone());
+                    self.needs_loading.lock().push(key.clone());
                 }
                 None
             }
             some => some,
-        }
+        })
+        .ok()
     }
 
-    pub fn write(&mut self, key: K, value: V) {
+    pub fn write(&self, key: K, value: V) {
         info!("Wrote {:?}", key);
-        self.loaded.insert(key, value);
+        self.loaded.write().insert(key, value);
     }
 
     pub fn needs_loading(&self) -> Vec<K> {
-        self.needs_loading.take()
+        self.needs_loading.lock().drain(..).collect::<Vec<_>>()
     }
 }
+
+pub type ImageCache = Cache<String, Handle>;
+
+impl ImageCache {
+    pub fn image_for_song(&self, song: &sc::Song) -> Option<Image> {
+        let url = song.artwork.as_ref()?.replace("-large", "-t500x500");
+
+        let handle = self.try_get(&url)?;
+        Some(Image::new(handle.clone()))
+    }
+}
+
+pub type SongCache = Cache<sc::Object, sc::Song>;

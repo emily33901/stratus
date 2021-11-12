@@ -1,7 +1,6 @@
 use futures::Future;
 use iced::time;
-use static_assertions::assert_impl_all;
-use std::cell::RefCell;
+use iced::Row;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -12,7 +11,9 @@ use iced::image::Handle;
 use iced::{self, button, executor, Application, Button, Column, Command, Image, Text};
 use log::{info, warn};
 
-use super::{cache::Cache, main_page::MainPage, playlist_page::PlaylistPage};
+use super::cache::Cache;
+use super::cache::{ImageCache, SongCache};
+use super::playlist_page::PlaylistPage;
 use crate::sc::{self, Id, SoundCloud};
 
 pub enum Page {
@@ -31,29 +32,23 @@ pub struct App {
     page: Page,
 
     pub playlist: Option<sc::Playlist>,
-    pub image_cache: Cache<String, Handle>,
-    pub song_cache: Cache<sc::Object, sc::Song>,
+    pub image_cache: Arc<ImageCache>,
+    pub song_cache: Arc<SongCache>,
 
     pub player: Arc<Mutex<Option<audio::HlsPlayer>>>,
 
     pub scroll: iced::scrollable::State,
-}
-
-impl App {
-    pub fn image_for_song(&self, song: &sc::Song) -> Option<Image> {
-        let url = song.artwork.as_ref()?.replace("-large", "-t500x500");
-
-        let handle = self.image_cache.try_get(&url)?;
-        Some(Image::new(handle.clone()))
-    }
+    pub playlist_page: PlaylistPage,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     None,
+    Tick,
     PlaylistClicked(sc::Playlist),
     SongLoaded(sc::Song),
     ImageLoaded((String, Handle)),
+    SongPlay(sc::Song),
 }
 
 struct Downloader {}
@@ -77,10 +72,11 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/aaa"))
-                        .await
-                        .unwrap();
+                let playlist = SoundCloud::playlist(Id::Url(
+                    "https://soundcloud.com/frequentaudio/sets/loungin",
+                ))
+                .await
+                .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist.clone())
             }
@@ -98,14 +94,14 @@ impl Application for App {
         clipboard: &mut iced::Clipboard,
     ) -> Command<Self::Message> {
         match &message {
-            Message::None => (),
+            Message::None | Message::Tick => (),
             message => info!("{:?}", message),
         }
 
         let msg_command = match message {
             Message::PlaylistClicked(playlist) => {
                 let playlist2 = playlist.clone();
-                self.playlist = Some(playlist.clone());
+                self.playlist_page.playlist = Some(playlist);
                 self.page = Page::Playlist;
 
                 Command::batch(playlist2.songs.into_iter().map(|song| {
@@ -122,6 +118,7 @@ impl Application for App {
                 Command::none()
             }
             Message::SongLoaded(song) => self.song_loaded(&song),
+            Message::SongPlay(song) => self.play_song(&song),
             _ => Command::none(),
         };
 
@@ -162,15 +159,17 @@ impl Application for App {
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
-        time::every(std::time::Duration::from_millis(500)).map(|_| Message::None)
+        time::every(std::time::Duration::from_millis(500)).map(|_| Message::Tick)
     }
 
     fn view(&mut self) -> iced::Element<Self::Message> {
+        use iced::Element;
         Column::new()
-            .push(match self.page {
-                Page::Main => self.get_main_page(),
-                Page::Playlist => self.get_playlist_page(),
+            .push::<Element<Message>>(match self.page {
+                Page::Main => Text::new("Main page").into(),
+                Page::Playlist => self.playlist_page.view(self.song_cache.as_ref()),
             })
+            // .push(Row::new().push(Button::new(&mut self.play_button, Text::new("play"))))
             .into()
     }
 }
@@ -180,17 +179,26 @@ impl App {
         info!("Song loaded: {}", song.title);
         self.song_cache.write(song.object.clone(), song.clone());
 
+        self.playlist_page
+            .song_loaded(&song, self.image_cache.clone());
+
+        Command::none()
+    }
+
+    fn play_song(&mut self, song: &sc::Song) -> iced::Command<Message> {
         for media in song.media.clone().transcodings {
             if media.format.mime_type == "audio/mpeg" {
+                let player = self.player.clone();
                 return async move {
                     if let Ok(m3u8) = media.resolve().await {
-                        info!("{}", m3u8);
+                        let mut player = player.lock().await;
+                        *player = None;
 
-                        let player = audio::HlsPlayer::new(&m3u8, Box::new(Downloader {})).unwrap();
-                        player.play();
-                        let _ = player.download().await.unwrap();
-                        player.play();
-                        player.sink.detach();
+                        let new_player =
+                            audio::HlsPlayer::new(&m3u8, Box::new(Downloader {})).unwrap();
+                        new_player.play().await;
+                        let _ = new_player.download().await.unwrap();
+                        *player = Some(new_player);
                     }
 
                     Message::None
@@ -198,6 +206,8 @@ impl App {
                 .into();
             }
         }
+
+        warn!("No transcoding available for song");
 
         Command::none()
     }

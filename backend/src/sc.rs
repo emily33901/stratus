@@ -112,6 +112,7 @@ pub mod api {
             pub user: Object,
             #[serde(rename = "tracks")]
             pub songs: Vec<Object>,
+            pub title: String,
         }
 
         #[derive(Deserialize, Serialize, Debug, Clone, Default)]

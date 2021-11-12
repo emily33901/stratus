@@ -14,10 +14,7 @@ use hls_source::HlsReader;
 use log::{debug, info, warn};
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
-use tokio::{
-    runtime,
-    sync::{Mutex, OnceCell},
-};
+use tokio::{runtime, sync::Mutex};
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -27,13 +24,11 @@ pub trait Downloader: Send + Sync {
 pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
-    pub sink: rodio::Sink,
+    pub sink: Arc<Mutex<rodio::Sink>>,
     source_sink: Arc<HlsReader>,
     downloader: Box<dyn Downloader>,
-    done: Arc<Mutex<bool>>,
+    done: Arc<std::sync::Mutex<bool>>,
 }
-
-static START: OnceCell<u32> = OnceCell::const_new();
 
 impl HlsPlayer {
     pub fn new(playlist: &str, downloader: Box<dyn Downloader>) -> Result<Self> {
@@ -44,7 +39,7 @@ impl HlsPlayer {
         // NOTICE(emily): this is absolutely fucked I should not be forced
         // to do such fuckery for a fucking audio output
         let (tx, rx) = mpsc::channel();
-        let done = Arc::new(Mutex::new(false));
+        let done = Arc::new(std::sync::Mutex::new(false));
         let tdone = done.clone();
         thread::spawn(move || -> Result<_> {
             let (stream, handle) = rodio::OutputStream::try_default()?;
@@ -53,7 +48,7 @@ impl HlsPlayer {
 
             loop {
                 {
-                    let done = tdone.blocking_lock();
+                    let done = tdone.lock().unwrap();
                     if *done {
                         break;
                     }
@@ -69,7 +64,7 @@ impl HlsPlayer {
 
         Ok(Self {
             playlist,
-            sink,
+            sink: Arc::new(Mutex::new(sink)),
             source_sink: Default::default(),
             done,
             downloader,
@@ -89,9 +84,8 @@ impl HlsPlayer {
             reader.add(&downloaded);
 
             if i == 0 {
-                let decoder =
-                    Decoder::new_mp3(reader.clone())?.delay(time::Duration::from_secs_f32(2.0));
-                self.sink.append(decoder);
+                let decoder = Decoder::new_mp3(reader.clone())?;
+                self.sink.lock().await.append(decoder);
             }
 
             warn!("Appended {} successfully ({})", i, reader.len());
@@ -100,28 +94,29 @@ impl HlsPlayer {
         Ok(())
     }
 
-    pub fn play(&self) {
+    pub async fn play(&self) {
         info!("Beginning playback");
-        self.sink.set_volume(1.0);
-        self.sink.play();
+        let sink = self.sink.lock().await;
+        sink.set_volume(1.0);
+        sink.play();
     }
 
-    pub fn pause(&self) {
+    pub async fn pause(&self) {
         info!("Pausing playback");
-        self.sink.pause();
+        let sink = self.sink.lock().await;
+        sink.pause();
     }
 
-    pub fn stop(&self) -> Result<()> {
+    pub async fn stop(&self) -> Result<()> {
         info!("Stopping playback");
-        self.sink.stop();
-        let mut done = self.done.blocking_lock();
-        *done = true;
+        let sink = self.sink.lock().await;
+        sink.stop();
         Ok(())
     }
 }
 
 impl Drop for HlsPlayer {
     fn drop(&mut self) {
-        *self.done.blocking_lock() = true;
+        *self.done.lock().unwrap() = true;
     }
 }
