@@ -94,8 +94,8 @@ impl HlsPlayer {
         Ok(())
     }
 
-    pub async fn play(&self) {
-        info!("Beginning playback");
+    pub async fn resume(&self) {
+        info!("Resuming playback");
         let sink = self.sink.lock().await;
         sink.set_volume(1.0);
         sink.play();
