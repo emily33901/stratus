@@ -10,42 +10,42 @@ use super::{
 };
 use crate::sc;
 
-#[derive(Default)]
 pub struct PlaylistPage {
     // Objects that this playlist wants
-    pub playlist: Option<sc::Playlist>,
+    pub playlist: sc::Playlist,
     // Built UI models of those objects
-    songs: Vec<Song>,
+    songs: Vec<Option<Song>>,
     pub scroll: iced::scrollable::State,
 }
 
 impl PlaylistPage {
+    pub fn new(playlist: sc::Playlist) -> Self {
+        let len = playlist.songs.len();
+        let mut songs = vec![];
+        songs.resize_with(playlist.songs.len(), || None);
+        let zelf = Self {
+            playlist,
+            songs,
+            scroll: Default::default(),
+        };
+
+        zelf
+    }
+
     pub fn view(&mut self, song_cache: &Cache<sc::Object, sc::Song>) -> Element<Message> {
         let mut column = Column::new().spacing(40);
 
-        if let Some(playlist) = self.playlist.as_ref() {
-            column = column.push(
-                Text::new(format!(
-                    "{} ({} tracks)",
-                    playlist.title.clone(),
-                    playlist.songs.len()
-                ))
-                .size(40),
-            );
-            // column = column.push(Text::new(playlist.).size(20)));
-        }
+        column = column.push(
+            Text::new(format!(
+                "{} ({} tracks)",
+                self.playlist.title.clone(),
+                self.playlist.songs.len()
+            ))
+            .size(40),
+        );
+        // column = column.push(Text::new(playlist.).size(20)));
 
-        if self.songs.len() == 0 {
-            if let Some(playlist) = self.playlist.as_ref() {
-                playlist
-                    .songs
-                    .iter()
-                    .map(|o| song_cache.try_get(o))
-                    .for_each(drop);
-            }
-        }
-
-        for song in &mut self.songs {
+        for song in self.songs.iter_mut().filter_map(|song| song.as_mut()) {
             column = column.push(song.view())
         }
 
@@ -60,12 +60,9 @@ impl PlaylistPage {
         song: &sc::Song,
         image_cache: Arc<ImageCache>,
     ) -> Command<Message> {
-        if let Some(playlist) = self.playlist.as_ref() {
-            for object in &playlist.songs {
-                if object.id == song.object.id {
-                    self.songs
-                        .push(Song::new(song.clone(), image_cache.clone()));
-                }
+        for (i, object) in self.playlist.songs.iter().enumerate() {
+            if object.id == song.object.id {
+                self.songs[i] = Some(Song::new(song.clone(), image_cache.clone()));
             }
         }
 
