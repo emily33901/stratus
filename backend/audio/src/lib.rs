@@ -65,10 +65,7 @@ impl HlsPlayer {
         // Try and download all segments of the playlist and append them to the sink
         let reader = HlsReader::default();
 
-        for (i, s) in self.playlist.segments[..self.playlist.segments.len() - 1]
-            .iter()
-            .enumerate()
-        {
+        for (i, s) in self.playlist.segments.iter().enumerate() {
             let downloaded = self.downloader.download(&s.uri).await?;
             std::fs::write(&format!("test/test_{}.mp3", i), &downloaded)?;
             reader.add(&downloaded);
