@@ -75,7 +75,7 @@ impl HlsPlayer {
                 self.sink.lock().await.append(decoder);
             }
 
-            warn!("Appended {} successfully ({})", i, reader.len());
+            info!("Appended {} successfully ({})", i, reader.len());
         }
         info!("Done downloading");
         Ok(())
