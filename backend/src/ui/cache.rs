@@ -15,7 +15,7 @@ use crate::sc;
 pub struct Cache<K, V> {
     loaded: RwLock<HashMap<K, V>>,
     needs_loading: Mutex<Vec<K>>,
-    blacklist: Mutex<HashSet<K>>,
+    blacklist: RwLock<HashSet<K>>,
 }
 
 impl<K, V> Default for Cache<K, V>
@@ -35,7 +35,7 @@ where
         Self {
             loaded: RwLock::new(HashMap::new()),
             needs_loading: Mutex::new(Vec::new()),
-            blacklist: Mutex::new(HashSet::new()),
+            blacklist: RwLock::new(HashSet::new()),
         }
     }
 
@@ -43,10 +43,10 @@ where
         let read = self.loaded.read();
         RwLockReadGuard::try_map(read, |read| match read.get(&key) {
             None => {
-                if self.blacklist.lock().contains(&key) {
+                if self.blacklist.read().contains(&key) {
                     warn!("{:?} is already blacklisted. NOT trying again", key);
                 } else {
-                    self.blacklist.lock().insert(key.clone());
+                    self.blacklist.write().insert(key.clone());
                     self.needs_loading.lock().push(key.clone());
                 }
                 None

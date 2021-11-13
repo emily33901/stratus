@@ -13,6 +13,7 @@ use log::{info, warn};
 
 use super::cache::Cache;
 use super::cache::{ImageCache, SongCache};
+use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
 use crate::sc::{self, Id, SoundCloud};
 
@@ -39,6 +40,7 @@ pub struct App {
 
     pub scroll: iced::scrollable::State,
     pub playlist_page: PlaylistPage,
+    pub controls: ControlsElement,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +51,8 @@ pub enum Message {
     SongLoaded(sc::Song),
     ImageLoaded((String, Handle)),
     SongPlay(sc::Song),
+    Resume,
+    Pause,
 }
 
 struct Downloader {}
@@ -72,11 +76,10 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist = SoundCloud::playlist(Id::Url(
-                    "https://soundcloud.com/frequentaudio/sets/loungin",
-                ))
-                .await
-                .unwrap();
+                let playlist =
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/chill-mk2"))
+                        .await
+                        .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist.clone())
             }
@@ -119,6 +122,28 @@ impl Application for App {
             }
             Message::SongLoaded(song) => self.song_loaded(&song),
             Message::SongPlay(song) => self.play_song(&song),
+            Message::Resume => {
+                let player = self.player.clone();
+                async move {
+                    let player = player.lock().await;
+                    if let Some(player) = player.as_ref() {
+                        player.play().await;
+                    }
+                    Message::None
+                }
+                .into()
+            }
+            Message::Pause => {
+                let player = self.player.clone();
+                async move {
+                    let player = player.lock().await;
+                    if let Some(player) = player.as_ref() {
+                        player.pause().await;
+                    }
+                    Message::None
+                }
+                .into()
+            }
             _ => Command::none(),
         };
 
@@ -165,10 +190,22 @@ impl Application for App {
     fn view(&mut self) -> iced::Element<Self::Message> {
         use iced::Element;
         Column::new()
-            .push::<Element<Message>>(match self.page {
-                Page::Main => Text::new("Main page").into(),
-                Page::Playlist => self.playlist_page.view(self.song_cache.as_ref()),
-            })
+            .push::<Element<Message>>(
+                Column::new()
+                    .push(match self.page {
+                        Page::Main => Text::new("Main page").into(),
+                        Page::Playlist => self.playlist_page.view(self.song_cache.as_ref()),
+                    })
+                    .height(iced::Length::FillPortion(1))
+                    .into(),
+            )
+            .push(
+                {
+                    let location = std::time::Duration::new(0, 0);
+                    self.controls.view(location)
+                }
+                .height(iced::Length::Units(40)),
+            )
             // .push(Row::new().push(Button::new(&mut self.play_button, Text::new("play"))))
             .into()
     }
