@@ -17,9 +17,9 @@ use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
 use crate::sc::{self, Id, SoundCloud};
 
-pub enum Page {
+enum Page {
     Main,
-    Playlist,
+    Playlist(PlaylistPage),
 }
 
 impl Default for Page {
@@ -39,7 +39,6 @@ pub struct App {
     pub player: Arc<Mutex<Option<audio::HlsPlayer>>>,
 
     pub scroll: iced::scrollable::State,
-    pub playlist_page: PlaylistPage,
     pub controls: ControlsElement,
 }
 
@@ -104,8 +103,14 @@ impl Application for App {
         let msg_command = match message {
             Message::PlaylistClicked(playlist) => {
                 let playlist2 = playlist.clone();
-                self.playlist_page.playlist = Some(playlist);
-                self.page = Page::Playlist;
+
+                self.page = Page::Playlist(PlaylistPage::new(playlist.clone()));
+
+                playlist
+                    .songs
+                    .iter()
+                    .map(|o| self.song_cache.try_get(o))
+                    .for_each(drop);
 
                 Command::batch(playlist2.songs.into_iter().map(|song| {
                     async move {
@@ -127,7 +132,7 @@ impl Application for App {
                 async move {
                     let player = player.lock().await;
                     if let Some(player) = player.as_ref() {
-                        player.play().await;
+                        player.resume().await;
                     }
                     Message::None
                 }
@@ -192,9 +197,11 @@ impl Application for App {
         Column::new()
             .push::<Element<Message>>(
                 Column::new()
-                    .push(match self.page {
+                    .push(match &mut self.page {
                         Page::Main => Text::new("Main page").into(),
-                        Page::Playlist => self.playlist_page.view(self.song_cache.as_ref()),
+                        Page::Playlist(playlist_page) => {
+                            playlist_page.view(self.song_cache.as_ref())
+                        }
                     })
                     .height(iced::Length::FillPortion(1))
                     .into(),
@@ -216,8 +223,9 @@ impl App {
         info!("Song loaded: {}", song.title);
         self.song_cache.write(song.object.clone(), song.clone());
 
-        self.playlist_page
-            .song_loaded(&song, self.image_cache.clone());
+        if let Page::Playlist(playlist_page) = &mut self.page {
+            playlist_page.song_loaded(&song, self.image_cache.clone());
+        }
 
         Command::none()
     }
@@ -233,7 +241,6 @@ impl App {
 
                         let new_player =
                             audio::HlsPlayer::new(&m3u8, Box::new(Downloader {})).unwrap();
-                        new_player.play().await;
                         let _ = new_player.download().await.unwrap();
                         *player = Some(new_player);
                     }
