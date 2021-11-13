@@ -1,8 +1,6 @@
-use std::{time};
-
+use std::time;
 
 use iced::{button, Button, Row, Text};
-
 
 use super::app::Message;
 

@@ -1,4 +1,3 @@
-
 use iced::time;
 
 use std::sync::Arc;
@@ -10,7 +9,6 @@ use eyre::Result;
 use iced::image::Handle;
 use iced::{self, executor, Application, Column, Command, Text};
 use log::{info, warn};
-
 
 use super::cache::{ImageCache, SongCache};
 use super::controls::ControlsElement;

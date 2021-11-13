@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use iced::{Column, Command, Container, Element, Length, Scrollable, Text};
 
-use super::{
-    app::Message,
-    cache::{ImageCache},
-    song::Song,
-};
+use super::{app::Message, cache::ImageCache, song::Song};
 use crate::sc;
 
 pub struct PlaylistPage {

@@ -1,17 +1,12 @@
 pub use api::model::{Media, Object, Playlist, Song, User};
 use eyre::Result;
 
-
-
 pub mod api {
-    use image::{ImageFormat};
+    use image::ImageFormat;
     use log::{info, warn};
-    
 
     pub mod model {
-        
 
-        
         use serde::{Deserialize, Deserializer, Serialize};
         use static_assertions::assert_impl_all;
 
