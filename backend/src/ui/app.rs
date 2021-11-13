@@ -209,7 +209,6 @@ impl Application for App {
                 }
                 .height(iced::Length::Units(40)),
             )
-            // .push(Row::new().push(Button::new(&mut self.play_button, Text::new("play"))))
             .into()
     }
 }

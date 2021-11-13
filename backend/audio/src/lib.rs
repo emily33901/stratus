@@ -14,7 +14,7 @@ use hls_source::HlsReader;
 use log::{debug, info, warn};
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
-use tokio::{runtime, sync::Mutex};
+use tokio::{runtime, sync::oneshot, sync::Mutex};
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -27,7 +27,7 @@ pub struct HlsPlayer {
     pub sink: Arc<Mutex<rodio::Sink>>,
     source_sink: Arc<HlsReader>,
     downloader: Box<dyn Downloader>,
-    done: Arc<std::sync::Mutex<bool>>,
+    die_tx: Option<oneshot::Sender<()>>,
 }
 
 impl HlsPlayer {
@@ -39,23 +39,18 @@ impl HlsPlayer {
         // NOTICE(emily): this is absolutely fucked I should not be forced
         // to do such fuckery for a fucking audio output
         let (tx, rx) = mpsc::channel();
-        let done = Arc::new(std::sync::Mutex::new(false));
-        let tdone = done.clone();
+        let (die_tx, die_rx) = oneshot::channel();
         thread::spawn(move || -> Result<_> {
             let (stream, handle) = rodio::OutputStream::try_default()?;
             let sink = rodio::Sink::try_new(&handle)?;
             tx.send(sink)?;
 
-            loop {
-                {
-                    let done = tdone.lock().unwrap();
-                    if *done {
-                        break;
-                    }
-                }
-
-                thread::sleep(time::Duration::from_millis(100));
-            }
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    die_rx.await.unwrap_or(());
+                });
 
             Ok(())
         });
@@ -66,7 +61,7 @@ impl HlsPlayer {
             playlist,
             sink: Arc::new(Mutex::new(sink)),
             source_sink: Default::default(),
-            done,
+            die_tx: Some(die_tx),
             downloader,
         })
     }
@@ -117,6 +112,8 @@ impl HlsPlayer {
 
 impl Drop for HlsPlayer {
     fn drop(&mut self) {
-        *self.done.lock().unwrap() = true;
+        if let Some(die) = self.die_tx.take() {
+            die.send(()).unwrap();
+        }
     }
 }
