@@ -3,9 +3,11 @@ use std::{
     io::{self, Cursor},
     sync::{
         atomic::{self, AtomicUsize},
-        Arc, Mutex, RwLock, Weak,
+        Arc, RwLock, Weak,
     },
 };
+
+use parking_lot::Mutex;
 
 #[derive(Default, Clone)]
 pub struct HlsReader {
@@ -15,18 +17,18 @@ pub struct HlsReader {
 
 impl HlsReader {
     pub fn add(&self, data: &[u8]) {
-        self.buffer.lock().unwrap().extend(data);
+        self.buffer.lock().extend(data);
     }
 
     pub fn len(&self) -> usize {
-        self.buffer.lock().unwrap().len()
+        self.buffer.lock().len()
     }
 }
 
 impl io::Read for HlsReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let len = buf.len();
-        let buffer = self.buffer.lock().unwrap();
+        let buffer = self.buffer.lock();
         if len > buffer.len() - self.pos {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
