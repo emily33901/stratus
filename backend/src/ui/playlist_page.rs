@@ -32,7 +32,7 @@ impl PlaylistPage {
         zelf
     }
 
-    pub fn view(&mut self, song_cache: &Cache<sc::Object, sc::Song>) -> Element<Message> {
+    pub fn view(&mut self) -> Element<Message> {
         let mut column = Column::new().spacing(40);
 
         column = column.push(

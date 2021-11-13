@@ -199,9 +199,7 @@ impl Application for App {
                 Column::new()
                     .push(match &mut self.page {
                         Page::Main => Text::new("Main page").into(),
-                        Page::Playlist(playlist_page) => {
-                            playlist_page.view(self.song_cache.as_ref())
-                        }
+                        Page::Playlist(playlist_page) => playlist_page.view(),
                     })
                     .height(iced::Length::FillPortion(1))
                     .into(),
