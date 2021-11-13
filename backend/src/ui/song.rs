@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use iced::{button, Button, Element, Image, Length, Row, Text};
+use iced::{Button, Element, Length, Row, Text};
 
 use crate::sc;
 

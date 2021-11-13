@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use iced::{Column, Command, Container, Element, Length, Row, Scrollable, Text};
+use iced::{Column, Command, Container, Element, Length, Scrollable, Text};
 
 use super::{
     app::Message,
-    cache::{Cache, ImageCache},
+    cache::{ImageCache},
     song::Song,
-    App,
 };
 use crate::sc;
 
@@ -20,7 +19,7 @@ pub struct PlaylistPage {
 
 impl PlaylistPage {
     pub fn new(playlist: sc::Playlist) -> Self {
-        let len = playlist.songs.len();
+        let _len = playlist.songs.len();
         let mut songs = vec![];
         songs.resize_with(playlist.songs.len(), || None);
         let zelf = Self {

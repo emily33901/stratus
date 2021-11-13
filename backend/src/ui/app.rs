@@ -1,17 +1,17 @@
-use futures::Future;
+
 use iced::time;
-use iced::Row;
+
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use async_trait::async_trait;
-use eyre::eyre;
+
 use eyre::Result;
 use iced::image::Handle;
-use iced::{self, button, executor, Application, Button, Column, Command, Image, Text};
+use iced::{self, executor, Application, Column, Command, Text};
 use log::{info, warn};
 
-use super::cache::Cache;
+
 use super::cache::{ImageCache, SongCache};
 use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
@@ -71,7 +71,7 @@ impl Application for App {
 
     type Flags = ();
 
-    fn new(flags: Self::Flags) -> (Self, Command<Self::Message>) {
+    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
         (
             Self::default(),
             async {
@@ -93,7 +93,7 @@ impl Application for App {
     fn update(
         &mut self,
         message: Self::Message,
-        clipboard: &mut iced::Clipboard,
+        _clipboard: &mut iced::Clipboard,
     ) -> Command<Self::Message> {
         match &message {
             Message::None | Message::Tick => (),

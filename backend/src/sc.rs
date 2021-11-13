@@ -1,17 +1,17 @@
 pub use api::model::{Media, Object, Playlist, Song, User};
 use eyre::Result;
 
-use self::api::model::HlsPlaylist;
+
 
 pub mod api {
-    use image::{DynamicImage, ImageFormat};
+    use image::{ImageFormat};
     use log::{info, warn};
-    use serde::Serialize;
+    
 
     pub mod model {
-        use std::cell::{Cell, RefCell};
+        
 
-        use derive_more::From;
+        
         use serde::{Deserialize, Deserializer, Serialize};
         use static_assertions::assert_impl_all;
 

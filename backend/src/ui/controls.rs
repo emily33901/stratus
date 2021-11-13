@@ -1,8 +1,8 @@
-use std::{sync::Arc, time};
+use std::{time};
 
-use audio::HlsPlayer;
-use iced::{button, Button, Element, Row, Text};
-use parking_lot::Mutex;
+
+use iced::{button, Button, Row, Text};
+
 
 use super::app::Message;
 
