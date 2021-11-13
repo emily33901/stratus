@@ -1,20 +1,17 @@
 mod hls_source;
 
-use core::{slice, time};
 use std::{
-    collections::VecDeque,
-    io::{BufReader, Cursor},
-    sync::{mpsc, Arc, Once, Weak},
-    thread::{self},
+    sync::{mpsc, Arc},
+    thread,
 };
 
 use async_trait::async_trait;
 use eyre::Result;
 use hls_source::HlsReader;
-use log::{debug, info, warn};
-use m3u8_rs::playlist::{MediaPlaylist, Playlist};
-use rodio::{buffer::SamplesBuffer, queue::SourcesQueueOutput, Decoder, Source};
-use tokio::{runtime, sync::oneshot, sync::Mutex};
+use log::{info, warn};
+use m3u8_rs::playlist::MediaPlaylist;
+use rodio::Decoder;
+use tokio::{sync::oneshot, sync::Mutex};
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -25,7 +22,6 @@ pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
     pub sink: Arc<Mutex<rodio::Sink>>,
-    source_sink: Arc<HlsReader>,
     downloader: Box<dyn Downloader>,
     die_tx: Option<oneshot::Sender<()>>,
 }
@@ -60,7 +56,6 @@ impl HlsPlayer {
         Ok(Self {
             playlist,
             sink: Arc::new(Mutex::new(sink)),
-            source_sink: Default::default(),
             die_tx: Some(die_tx),
             downloader,
         })

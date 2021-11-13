@@ -74,7 +74,7 @@ impl Application for App {
             Self::default(),
             async {
                 let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/chill-mk2"))
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/heart"))
                         .await
                         .unwrap();
                 SoundCloud::frame();
@@ -203,11 +203,16 @@ impl Application for App {
                     .into(),
             )
             .push(
-                {
-                    let location = std::time::Duration::new(0, 0);
-                    self.controls.view(location)
-                }
-                .height(iced::Length::Units(40)),
+                Column::new()
+                    .push(
+                        {
+                            let location = std::time::Duration::new(0, 0);
+                            self.controls.view(location)
+                        }
+                        .height(iced::Length::Units(40))
+                        .spacing(20),
+                    )
+                    .padding(20),
             )
             .into()
     }
