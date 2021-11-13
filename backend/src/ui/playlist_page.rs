@@ -18,13 +18,13 @@ impl PlaylistPage {
         let _len = playlist.songs.len();
         let mut songs = vec![];
         songs.resize_with(playlist.songs.len(), || None);
-        let zelf = Self {
+        
+
+        Self {
             playlist,
             songs,
             scroll: Default::default(),
-        };
-
-        zelf
+        }
     }
 
     pub fn view(&mut self) -> Element<Message> {

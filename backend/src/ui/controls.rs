@@ -17,6 +17,5 @@ impl ControlsElement {
             .push(Button::new(&mut self.pause_button, Text::new("pause")).on_press(Message::Pause))
             .push(Text::new(format!("{:?}", location)))
             .align_items(iced::Align::Center)
-            .into()
     }
 }

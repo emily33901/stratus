@@ -40,9 +40,9 @@ where
 
     pub fn try_get(&self, key: &K) -> Option<MappedRwLockReadGuard<V>> {
         let read = self.loaded.read();
-        RwLockReadGuard::try_map(read, |read| match read.get(&key) {
+        RwLockReadGuard::try_map(read, |read| match read.get(key) {
             None => {
-                if self.blacklist.read().contains(&key) {
+                if self.blacklist.read().contains(key) {
                     warn!("{:?} is already blacklisted. NOT trying again", key);
                 } else {
                     self.blacklist.write().insert(key.clone());

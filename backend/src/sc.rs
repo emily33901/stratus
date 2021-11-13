@@ -170,7 +170,7 @@ pub mod api {
         let client = reqwest::Client::new();
 
         let headers = COMMON_HEADERS.clone();
-        let params = COMMON_PARAMS.clone();
+        let params = *COMMON_PARAMS;
 
         let response = client
             .get(url)
@@ -188,7 +188,7 @@ pub mod api {
         let client = reqwest::Client::new();
 
         let headers = COMMON_HEADERS.clone();
-        let params = COMMON_PARAMS.clone();
+        let params = *COMMON_PARAMS;
 
         let response = client
             .get(url)
@@ -220,7 +220,7 @@ pub mod api {
         let client = reqwest::Client::new();
 
         let headers = COMMON_HEADERS.clone();
-        let params = COMMON_PARAMS.clone();
+        let params = *COMMON_PARAMS;
 
         let final_endpoint = format!("{}/{}/{}", API_ORIGIN, endpoint, id);
 
@@ -237,7 +237,7 @@ pub mod api {
         let object = serde_json::from_str(&text)
             .map_err(|e| eyre!(e).wrap_err(eyre!("T was {}", std::any::type_name::<T>())))?;
 
-        return Ok(object);
+        Ok(object)
     }
 
     impl model::User {

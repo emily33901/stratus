@@ -78,7 +78,7 @@ impl Application for App {
                         .await
                         .unwrap();
                 SoundCloud::frame();
-                Message::PlaylistClicked(playlist.clone())
+                Message::PlaylistClicked(playlist)
             }
             .into(),
         )
@@ -224,7 +224,7 @@ impl App {
         self.song_cache.write(song.object.clone(), song.clone());
 
         if let Page::Playlist(playlist_page) = &mut self.page {
-            playlist_page.song_loaded(&song, self.image_cache.clone());
+            playlist_page.song_loaded(song, self.image_cache.clone());
         }
 
         Command::none()
