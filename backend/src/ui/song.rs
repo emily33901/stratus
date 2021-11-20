@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use iced::{Button, Element, Length, Row, Text};
+use iced::{Button, Column, Element, Length, Row, Text};
 
 use crate::sc;
 
@@ -20,7 +20,7 @@ impl Song {
             } else {
                 Row::new()
             }
-            .push(Text::new(&self.song.title))
+            .push(Column::new().push(Text::new(&self.song.title)))
             .push(
                 Button::new(&mut self.play_button_state, Text::new("play"))
                     .on_press(Message::SongPlay(self.song.clone())),

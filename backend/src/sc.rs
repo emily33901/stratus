@@ -95,6 +95,8 @@ pub mod api {
             pub artwork: Option<String>,
             pub title: String,
             pub media: Media,
+            // This is in milliseconds
+            pub full_duration: usize,
         }
 
         #[derive(Deserialize, Serialize, Debug, Clone, Default)]

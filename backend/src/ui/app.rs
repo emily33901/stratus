@@ -1,7 +1,7 @@
 use iced::time;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use async_trait::async_trait;
 
@@ -35,6 +35,7 @@ pub struct App {
     pub song_cache: Arc<SongCache>,
 
     pub player: Arc<Mutex<Option<audio::HlsPlayer>>>,
+    pub current_time: Arc<Mutex<usize>>,
 
     pub scroll: iced::scrollable::State,
     pub controls: ControlsElement,
@@ -73,10 +74,11 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/heart"))
-                        .await
-                        .unwrap();
+                let playlist = SoundCloud::playlist(Id::Url(
+                    "https://soundcloud.com/frequentaudio/sets/loungin",
+                ))
+                .await
+                .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
             }
@@ -183,7 +185,17 @@ impl Application for App {
                 .into()
             }));
 
-        Command::batch([msg_command, image_loads, song_loads])
+        let current_time = self.current_time.clone();
+        let player = self.player.clone();
+        let update_pos = async move {
+            if let Some(player) = player.lock().await.as_ref() {
+                *current_time.lock().await = player.position().await;
+            }
+            Message::None
+        }
+        .into();
+
+        Command::batch([msg_command, image_loads, song_loads, update_pos])
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
@@ -206,8 +218,9 @@ impl Application for App {
                 Column::new()
                     .push(
                         {
-                            let location = std::time::Duration::new(0, 0);
-                            self.controls.view(location)
+                            self.controls.view(std::time::Duration::from_secs_f32(
+                                *self.current_time.blocking_lock() as f32 / 44100.0,
+                            ))
                         }
                         .height(iced::Length::Units(40))
                         .spacing(20),
