@@ -74,11 +74,10 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist = SoundCloud::playlist(Id::Url(
-                    "https://soundcloud.com/frequentaudio/sets/loungin",
-                ))
-                .await
-                .unwrap();
+                let playlist =
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/heart"))
+                        .await
+                        .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
             }
@@ -219,7 +218,7 @@ impl Application for App {
                     .push(
                         {
                             self.controls.view(std::time::Duration::from_secs_f32(
-                                *self.current_time.blocking_lock() as f32 / 44100.0,
+                                *self.current_time.blocking_lock() as f32 / 44100.0 / 2.0,
                             ))
                         }
                         .height(iced::Length::Units(40))

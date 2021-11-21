@@ -1,4 +1,5 @@
 mod hls_source;
+mod mp3;
 
 use std::{
     sync::{mpsc, Arc},
@@ -12,6 +13,8 @@ use log::{info, warn};
 use m3u8_rs::playlist::MediaPlaylist;
 use rodio::{Decoder, Source};
 use tokio::{sync::oneshot, sync::watch, sync::Mutex};
+
+use crate::mp3::HlsDecoder;
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -76,13 +79,14 @@ impl HlsPlayer {
             reader.add(&downloaded);
 
             if i == 0 {
-                let decoder = Decoder::new_mp3(reader.clone())?;
+                let decoder = HlsDecoder::new(reader.clone())?;
+                // let decoder = Decoder::new_mp3(reader.clone())?;
                 let reader = reader.clone();
                 let sender = self.position_tx.lock().await.take().unwrap();
                 let periodic =
-                    decoder.periodic_access(time::Duration::from_millis(100), move |_| {
-                        let reader_pos = reader.pos();
-                        sender.send(reader_pos).unwrap();
+                    decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                        let pos = decoder.samples();
+                        sender.send(pos).unwrap();
                     });
                 self.sink.lock().await.append(periodic);
             }
