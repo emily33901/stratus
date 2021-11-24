@@ -1,5 +1,6 @@
 use iced::time;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
 
@@ -10,7 +11,7 @@ use iced::image::Handle;
 use iced::{self, executor, Application, Column, Command, Text};
 use log::{info, warn};
 
-use super::cache::{ImageCache, SongCache};
+use super::cache::{ImageCache, SongCache, UserCache};
 use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
 use crate::sc::{self, Id, SoundCloud};
@@ -30,15 +31,17 @@ impl Default for Page {
 pub struct App {
     page: Page,
 
-    pub playlist: Option<sc::Playlist>,
-    pub image_cache: Arc<ImageCache>,
-    pub song_cache: Arc<SongCache>,
+    playlist: Option<sc::Playlist>,
+    image_cache: Arc<ImageCache>,
+    song_cache: Arc<SongCache>,
+    user_cache: Arc<UserCache>,
 
-    pub player: Arc<Mutex<Option<audio::HlsPlayer>>>,
-    pub current_time: Arc<Mutex<usize>>,
+    player: Arc<Mutex<Option<audio::HlsPlayer>>>,
+    current_time: Arc<AtomicUsize>,
+    total_time: f32,
 
-    pub scroll: iced::scrollable::State,
-    pub controls: ControlsElement,
+    scroll: iced::scrollable::State,
+    controls: ControlsElement,
 }
 
 #[derive(Debug, Clone)]
@@ -53,12 +56,22 @@ pub enum Message {
     Pause,
 }
 
-struct Downloader {}
+struct Downloader {
+    client: reqwest::Client,
+}
+
+impl Downloader {
+    fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
 #[async_trait]
 impl audio::Downloader for Downloader {
     async fn download(&self, url: &str) -> Result<Vec<u8>> {
-        let client = reqwest::Client::new();
-        let response = client.get(url).send().await?;
+        let response = self.client.get(url).send().await?;
         Ok(response.bytes().await?.to_vec())
     }
 }
@@ -75,7 +88,7 @@ impl Application for App {
             Self::default(),
             async {
                 let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/heart"))
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/b-o-p"))
                         .await
                         .unwrap();
                 SoundCloud::frame();
@@ -188,11 +201,17 @@ impl Application for App {
         let player = self.player.clone();
         let update_pos = async move {
             if let Some(player) = player.lock().await.as_ref() {
-                *current_time.lock().await = player.position().await;
+                current_time.store(player.position(), Ordering::Release);
             }
             Message::None
         }
         .into();
+
+        self.total_time = self
+            .player
+            .blocking_lock()
+            .as_ref()
+            .map_or(0.0, |player| player.total());
 
         Command::batch([msg_command, image_loads, song_loads, update_pos])
     }
@@ -217,9 +236,14 @@ impl Application for App {
                 Column::new()
                     .push(
                         {
-                            self.controls.view(std::time::Duration::from_secs_f32(
-                                *self.current_time.blocking_lock() as f32 / 44100.0 / 2.0,
-                            ))
+                            self.controls.view(
+                                std::time::Duration::from_secs_f32(
+                                    self.current_time.load(Ordering::Relaxed) as f32
+                                        / 44100.0
+                                        / 2.0,
+                                ),
+                                std::time::Duration::from_secs_f32(self.total_time),
+                            )
                         }
                         .height(iced::Length::Units(40))
                         .spacing(20),
@@ -252,7 +276,7 @@ impl App {
                         *player = None;
 
                         let new_player =
-                            audio::HlsPlayer::new(&m3u8, Box::new(Downloader {})).unwrap();
+                            audio::HlsPlayer::new(&m3u8, Box::new(Downloader::new())).unwrap();
                         let _ = new_player.download().await.unwrap();
                         *player = Some(new_player);
                     }

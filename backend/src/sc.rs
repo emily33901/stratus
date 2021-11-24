@@ -75,7 +75,7 @@ pub mod api {
             pub transcodings: Vec<Transcoding>,
         }
 
-        #[derive(Deserialize, Serialize, Debug)]
+        #[derive(Deserialize, Serialize, Debug, Default, Clone)]
         pub struct User {
             #[serde(flatten)]
             pub object: Object,

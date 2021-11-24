@@ -77,3 +77,5 @@ impl ImageCache {
 }
 
 pub type SongCache = Cache<sc::Object, sc::Song>;
+
+pub type UserCache = Cache<sc::Object, sc::User>;
