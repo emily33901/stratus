@@ -277,7 +277,7 @@ impl App {
 
                         let new_player =
                             audio::HlsPlayer::new(&m3u8, Box::new(Downloader::new())).unwrap();
-                        let _ = new_player.download().await.unwrap();
+                        new_player.download().await.unwrap();
                         *player = Some(new_player);
                     }
 
