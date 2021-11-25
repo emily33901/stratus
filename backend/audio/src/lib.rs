@@ -2,7 +2,7 @@ mod hls_source;
 mod mp3;
 
 use std::{
-    sync::{atomic::AtomicUsize, mpsc, Arc},
+    sync::{atomic::AtomicUsize, Arc},
     thread, time,
 };
 
@@ -12,7 +12,7 @@ use hls_source::{HlsReader, LazyReader};
 use log::{info, warn};
 use m3u8_rs::playlist::MediaPlaylist;
 use rodio::{Decoder, Source};
-use tokio::{sync::oneshot, sync::watch, sync::Mutex};
+use tokio::{sync::mpsc, sync::oneshot, sync::watch, sync::Mutex};
 
 use crate::mp3::HlsDecoder;
 
@@ -21,20 +21,21 @@ pub trait Downloader: Send + Sync {
     async fn download(&self, url: &str) -> Result<Vec<u8>>;
 }
 
-enum SinkControl {
+enum PlayerControl {
     Pause,
     Resume,
     SkipAll,
     SkipOne,
+    Volume(f32),
+    Seek(usize),
     Queue(LazyReader),
 }
 
 pub struct HlsPlayer {
     playlist: MediaPlaylist,
     // TODO(emily): temp pub
-    pub sink: Arc<Mutex<rodio::Sink>>,
     downloader: Box<dyn Downloader>,
-    die_tx: Option<oneshot::Sender<()>>,
+    control: mpsc::Sender<PlayerControl>,
     pos: Arc<AtomicUsize>,
     total: parking_lot::Mutex<f32>,
 }
@@ -43,36 +44,38 @@ impl HlsPlayer {
     pub fn new(playlist: &str, downloader: Box<dyn Downloader>) -> Result<Self> {
         let bytes = playlist.as_bytes().to_vec();
         let playlist = m3u8_rs::parse_media_playlist_res(&bytes).unwrap();
-        // get the default output device
 
-        // NOTICE(emily): this is absolutely fucked I should not be forced
-        // to do such fuckery for a fucking audio output
-        let (tx, rx) = mpsc::channel();
-        let (die_tx, die_rx) = oneshot::channel();
+        let (control_tx, control_rx) = mpsc::channel(10);
         thread::spawn(move || -> Result<_> {
             let (stream, handle) = rodio::OutputStream::try_default()?;
             let sink = rodio::Sink::try_new(&handle)?;
-            tx.send(sink)?;
 
             tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap()
-                .block_on(async {
-                    die_rx.await.unwrap_or(());
+                .block_on(async move {
+                    while let Some(control) = control_rx.recv().await {
+                        match control {
+                            PlayerControl::Pause => sink.pause(),
+                            PlayerControl::Resume => sink.play(),
+                            PlayerControl::SkipAll => sink.stop(),
+                            PlayerControl::SkipOne => todo!(),
+                            PlayerControl::Queue(playlist) => todo!(),
+                            PlayerControl::Volume(_) => todo!(),
+                            PlayerControl::Seek(_) => todo!(),
+                        }
+                    }
                 });
 
             Ok(())
         });
 
-        let sink = rx.recv()?;
-
         Ok(Self {
             playlist,
-            sink: Arc::new(Mutex::new(sink)),
-            die_tx: Some(die_tx),
             downloader,
             pos: Default::default(),
             total: Default::default(),
+            control: control_tx,
         })
     }
 
@@ -102,23 +105,19 @@ impl HlsPlayer {
         Ok(())
     }
 
-    pub async fn resume(&self) {
+    pub async fn resume(&self) -> Result<()> {
         info!("Resuming playback");
-        let sink = self.sink.lock().await;
-        sink.set_volume(1.0);
-        sink.play();
+        Ok(self.control.send(PlayerControl::Resume).await?)
     }
 
-    pub async fn pause(&self) {
+    pub async fn pause(&self) -> Result<()> {
         info!("Pausing playback");
-        let sink = self.sink.lock().await;
-        sink.pause();
+        Ok(self.control.send(PlayerControl::Pause).await?)
     }
 
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping playback");
-        let sink = self.sink.lock().await;
-        sink.stop();
+        // self.control.send(PlayerControl::).await?;
         Ok(())
     }
 

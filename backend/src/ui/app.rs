@@ -87,10 +87,11 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/b-o-p"))
-                        .await
-                        .unwrap();
+                let playlist = SoundCloud::playlist(Id::Url(
+                    "https://soundcloud.com/forddnb/sets/colours-in-sound",
+                ))
+                .await
+                .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
             }
@@ -271,16 +272,17 @@ impl App {
             if media.format.mime_type == "audio/mpeg" {
                 let player = self.player.clone();
                 return async move {
-                    if let Ok(m3u8) = media.resolve().await {
-                        let mut player = player.lock().await;
-                        *player = None;
+                    tokio::task::spawn(async move {
+                        if let Ok(m3u8) = media.resolve().await {
+                            let mut player = player.lock().await;
+                            *player = None;
 
-                        let new_player =
-                            audio::HlsPlayer::new(&m3u8, Box::new(Downloader::new())).unwrap();
-                        new_player.download().await.unwrap();
-                        *player = Some(new_player);
-                    }
-
+                            let new_player =
+                                audio::HlsPlayer::new(&m3u8, Box::new(Downloader::new())).unwrap();
+                            new_player.download().await.unwrap();
+                            *player = Some(new_player);
+                        }
+                    });
                     Message::None
                 }
                 .into();
