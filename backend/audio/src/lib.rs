@@ -129,11 +129,3 @@ impl HlsPlayer {
         *self.total.lock()
     }
 }
-
-impl Drop for HlsPlayer {
-    fn drop(&mut self) {
-        if let Some(die) = self.die_tx.take() {
-            die.send(()).unwrap();
-        }
-    }
-}
