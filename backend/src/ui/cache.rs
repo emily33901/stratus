@@ -43,7 +43,7 @@ where
         RwLockReadGuard::try_map(read, |read| match read.get(key) {
             None => {
                 if self.blacklist.read().contains(key) {
-                    warn!("{:?} is already blacklisted. NOT trying again", key);
+                    // warn!("{:?} is already blacklisted. NOT trying again", key);
                 } else {
                     self.blacklist.write().insert(key.clone());
                     self.needs_loading.lock().push(key.clone());

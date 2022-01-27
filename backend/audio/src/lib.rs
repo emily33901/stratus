@@ -3,7 +3,10 @@ mod mp3;
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{
+        atomic::{AtomicU16, AtomicUsize},
+        Arc,
+    },
     thread, time,
 };
 
@@ -36,7 +39,7 @@ enum PlayerControl {
 pub struct HlsPlayer {
     control: mpsc::Sender<PlayerControl>,
     pos: Arc<AtomicUsize>,
-    total: parking_lot::Mutex<f32>,
+    total: Arc<parking_lot::Mutex<f32>>,
 }
 
 impl HlsPlayer {
@@ -47,7 +50,10 @@ impl HlsPlayer {
         let pos = Arc::new(AtomicUsize::new(0));
         let loop_pos = pos.clone();
 
-        thread::spawn(move || -> Result<_> {
+        let total: Arc<parking_lot::Mutex<f32>> = Default::default();
+        let loop_total = total.clone();
+
+        thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -56,15 +62,14 @@ impl HlsPlayer {
                     control_rx,
                     downloader,
                     loop_pos,
+                    loop_total,
                     loop_control_tx,
                 ));
-
-            Ok(())
         });
 
         Self {
             pos,
-            total: Default::default(),
+            total,
             control: control_tx,
         }
     }
@@ -139,7 +144,8 @@ impl HlsPlayer {
 async fn player_control(
     mut control_rx: mpsc::Receiver<PlayerControl>,
     downloader: Arc<dyn Downloader>,
-    loop_pos: Arc<AtomicUsize>,
+    pos: Arc<AtomicUsize>,
+    total: Arc<parking_lot::Mutex<f32>>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
 ) {
     let (sink, stream, handle) = {
@@ -163,11 +169,21 @@ async fn player_control(
             PlayerControl::SkipAll => sink.lock().await.stop(),
             PlayerControl::SkipOne => {
                 if let Some(playlist) = queue.pop_front() {
+                    *total.lock() = playlist
+                        .playlist
+                        .segments
+                        .iter()
+                        .map(|x| x.duration)
+                        .reduce(|x, y| x + y)
+                        .unwrap();
+
                     let reader = HlsReader::default();
                     let r2 = reader.clone();
 
                     let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
 
+                    // TODO(emily): Need to add some cancel in here to stop this from happening after tracks are
+                    // skipped
                     tokio::spawn(async move {
                         for (i, s) in playlist.playlist.segments.iter().enumerate() {
                             let downloaded = downloader.download(&s.uri).await.unwrap();
@@ -184,10 +200,10 @@ async fn player_control(
 
                     reset_sink().await;
                     let decoder = HlsDecoder::new(reader).unwrap();
-                    let loop_pos = loop_pos.clone();
+                    let pos = pos.clone();
                     let periodic =
                         decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                            loop_pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                            pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
                         });
                     let sink = sink.lock().await;
                     sink.append(periodic);

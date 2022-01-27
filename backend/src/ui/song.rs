@@ -22,8 +22,8 @@ impl Song {
             }
             .push(Column::new().push(Text::new(&self.song.title)))
             .push(
-                Button::new(&mut self.play_button_state, Text::new("play"))
-                    .on_press(Message::SongPlay(self.song.clone())),
+                Button::new(&mut self.play_button_state, Text::new("add to queue"))
+                    .on_press(Message::SongQueue(self.song.clone())),
             )
         }
         .spacing(20)

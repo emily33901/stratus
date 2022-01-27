@@ -68,7 +68,7 @@ pub enum Message {
     PlaylistClicked(sc::Playlist),
     SongLoaded(sc::Song),
     ImageLoaded((String, Handle)),
-    SongPlay(sc::Song),
+    SongQueue(sc::Song),
     Resume,
     Pause,
     Skip,
@@ -105,11 +105,10 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist = SoundCloud::playlist(Id::Url(
-                    "https://soundcloud.com/forddnb/sets/colours-in-sound",
-                ))
-                .await
-                .unwrap();
+                let playlist =
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/the-izzard/sets/keeping"))
+                        .await
+                        .unwrap();
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
             }
@@ -157,7 +156,7 @@ impl Application for App {
                 Command::none()
             }
             Message::SongLoaded(song) => self.song_loaded(&song),
-            Message::SongPlay(song) => self.play_song(&song),
+            Message::SongQueue(song) => self.queue_song(&song),
             Message::Resume => {
                 let player = self.player.clone();
                 async move {
@@ -284,7 +283,7 @@ impl App {
         Command::none()
     }
 
-    fn play_song(&mut self, song: &sc::Song) -> iced::Command<Message> {
+    fn queue_song(&mut self, song: &sc::Song) -> iced::Command<Message> {
         for media in song.media.clone().transcodings {
             if media.format.mime_type == "audio/mpeg" {
                 let player = self.player.clone();

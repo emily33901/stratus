@@ -18,7 +18,6 @@ impl PlaylistPage {
         let _len = playlist.songs.len();
         let mut songs = vec![];
         songs.resize_with(playlist.songs.len(), || None);
-        
 
         Self {
             playlist,
@@ -55,6 +54,7 @@ impl PlaylistPage {
         song: &sc::Song,
         image_cache: Arc<ImageCache>,
     ) -> Command<Message> {
+        // TODO(emily): probably want a hashmap here
         for (i, object) in self.playlist.songs.iter().enumerate() {
             if object.id == song.object.id {
                 self.songs[i] = Some(Song::new(song.clone(), image_cache.clone()));
