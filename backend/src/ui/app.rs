@@ -1,3 +1,4 @@
+use audio::HlsPlayer;
 use iced::time;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,7 +28,6 @@ impl Default for Page {
     }
 }
 
-#[derive(Default)]
 pub struct App {
     page: Page,
 
@@ -36,12 +36,29 @@ pub struct App {
     song_cache: Arc<SongCache>,
     user_cache: Arc<UserCache>,
 
-    player: Arc<Mutex<Option<audio::HlsPlayer>>>,
+    player: Arc<Mutex<audio::HlsPlayer>>,
     current_time: Arc<AtomicUsize>,
     total_time: f32,
 
     scroll: iced::scrollable::State,
     controls: ControlsElement,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            page: Default::default(),
+            playlist: Default::default(),
+            image_cache: Default::default(),
+            song_cache: Default::default(),
+            user_cache: Default::default(),
+            player: Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new())))),
+            current_time: Default::default(),
+            total_time: Default::default(),
+            scroll: Default::default(),
+            controls: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +71,7 @@ pub enum Message {
     SongPlay(sc::Song),
     Resume,
     Pause,
+    Skip,
 }
 
 struct Downloader {
@@ -144,9 +162,7 @@ impl Application for App {
                 let player = self.player.clone();
                 async move {
                     let player = player.lock().await;
-                    if let Some(player) = player.as_ref() {
-                        player.resume().await;
-                    }
+                    player.resume().await.unwrap();
                     Message::None
                 }
                 .into()
@@ -155,9 +171,16 @@ impl Application for App {
                 let player = self.player.clone();
                 async move {
                     let player = player.lock().await;
-                    if let Some(player) = player.as_ref() {
-                        player.pause().await;
-                    }
+                    player.pause().await.unwrap();
+                    Message::None
+                }
+                .into()
+            }
+            Message::Skip => {
+                let player = self.player.clone();
+                async move {
+                    let player = player.lock().await;
+                    player.skip().await.unwrap();
                     Message::None
                 }
                 .into()
@@ -201,18 +224,12 @@ impl Application for App {
         let current_time = self.current_time.clone();
         let player = self.player.clone();
         let update_pos = async move {
-            if let Some(player) = player.lock().await.as_ref() {
-                current_time.store(player.position(), Ordering::Release);
-            }
+            current_time.store(player.lock().await.position(), Ordering::Release);
             Message::None
         }
         .into();
 
-        self.total_time = self
-            .player
-            .blocking_lock()
-            .as_ref()
-            .map_or(0.0, |player| player.total());
+        self.total_time = self.player.blocking_lock().total();
 
         Command::batch([msg_command, image_loads, song_loads, update_pos])
     }
@@ -274,13 +291,7 @@ impl App {
                 return async move {
                     tokio::task::spawn(async move {
                         if let Ok(m3u8) = media.resolve().await {
-                            let mut player = player.lock().await;
-                            *player = None;
-
-                            let new_player =
-                                audio::HlsPlayer::new(&m3u8, Box::new(Downloader::new())).unwrap();
-                            new_player.download().await.unwrap();
-                            *player = Some(new_player);
+                            player.lock().await.queue(&m3u8).await.unwrap();
                         }
                     });
                     Message::None

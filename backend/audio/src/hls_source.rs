@@ -1,10 +1,11 @@
 use std::{io, sync::Arc};
 
+use eyre::Result;
 use log::warn;
 use m3u8_rs::playlist::{MediaPlaylist, Playlist};
 use parking_lot::{Mutex, RwLock};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct HlsReader {
     buffer: Arc<RwLock<Vec<u8>>>,
     pos: usize,
@@ -55,79 +56,13 @@ impl io::Seek for HlsReader {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct LazyReader {
-    downloader: Box<dyn super::Downloader>,
-    playlist: MediaPlaylist,
-    runtime: tokio::runtime::Handle,
-    reader: Option<HlsReader>,
+    pub(crate) playlist: MediaPlaylist,
 }
 
 impl LazyReader {
-    pub(crate) fn new(
-        playlist: MediaPlaylist,
-        downloader: Box<dyn super::Downloader>,
-        runtime: tokio::runtime::Handle,
-    ) -> Self {
-        LazyReader {
-            playlist,
-            downloader,
-            runtime,
-            reader: None,
-        }
-    }
-
-    fn populate_reader(&mut self) {
-        self.reader = Some(HlsReader::default())
-    }
-
-    #[cfg(target = "never")]
-    async fn download(&self) -> Result<()> {
-        todo!();
-
-        // Try and download all segments of the playlist and append them to decoder.
-        let reader = HlsReader::default();
-
-        for (i, s) in self.playlist.segments.iter().enumerate() {
-            let downloaded = self.downloader.download(&s.uri).await?;
-            reader.add(&downloaded);
-
-            if i == 0 {
-                let decoder = HlsDecoder::new(reader.clone())?;
-                // let decoder = Decoder::new_mp3(reader.clone())?;
-                let sender = self.position_tx.lock().await.take().unwrap();
-                let periodic =
-                    decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                        let pos = decoder.samples();
-                        sender.send(pos).unwrap();
-                    });
-                self.sink.lock().await.append(periodic);
-            }
-
-            info!("Appended {} successfully ({})", i, reader.len());
-        }
-        info!("Done downloading");
-        Ok(())
-    }
-}
-
-impl io::Read for LazyReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if let Some(reader) = self.reader.as_mut() {
-            reader.read(buf)
-        } else {
-            self.populate_reader();
-            self.reader.as_mut().unwrap().read(buf)
-        }
-    }
-}
-
-impl io::Seek for LazyReader {
-    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
-        if let Some(reader) = self.reader.as_mut() {
-            reader.seek(pos)
-        } else {
-            self.populate_reader();
-            self.reader.as_mut().unwrap().seek(pos)
-        }
+    pub(crate) fn new(playlist: MediaPlaylist) -> Self {
+        LazyReader { playlist }
     }
 }

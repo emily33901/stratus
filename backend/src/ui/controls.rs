@@ -8,6 +8,7 @@ use super::app::Message;
 pub struct ControlsElement {
     play_button: button::State,
     pause_button: button::State,
+    skip_button: button::State,
     slider: slider::State,
 }
 
@@ -16,6 +17,7 @@ impl ControlsElement {
         Row::new()
             .push(Button::new(&mut self.play_button, Text::new("play")).on_press(Message::Resume))
             .push(Button::new(&mut self.pause_button, Text::new("pause")).on_press(Message::Pause))
+            .push(Button::new(&mut self.skip_button, Text::new("skip")).on_press(Message::Skip))
             .push(Text::new(format!("{:.1}", location.as_secs_f32())))
             .push(Slider::new(
                 &mut self.slider,
