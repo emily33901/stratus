@@ -1,6 +1,8 @@
 use audio::HlsPlayer;
+use futures::stream::BoxStream;
 use iced::time;
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
@@ -39,6 +41,7 @@ pub struct App {
     player: Arc<Mutex<audio::HlsPlayer>>,
     current_time: Arc<AtomicUsize>,
     total_time: f32,
+    queue: VecDeque<audio::TrackId>,
 
     scroll: iced::scrollable::State,
     controls: ControlsElement,
@@ -57,6 +60,7 @@ impl Default for App {
             total_time: Default::default(),
             scroll: Default::default(),
             controls: Default::default(),
+            queue: Default::default(),
         }
     }
 }
@@ -72,6 +76,7 @@ pub enum Message {
     Resume,
     Pause,
     Skip,
+    QueueChanged(VecDeque<audio::TrackId>),
 }
 
 struct Downloader {
@@ -106,7 +111,7 @@ impl Application for App {
             Self::default(),
             async {
                 let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/the-izzard/sets/keeping"))
+                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/feel"))
                         .await
                         .unwrap();
                 SoundCloud::frame();
@@ -184,6 +189,10 @@ impl Application for App {
                 }
                 .into()
             }
+            Message::QueueChanged(queue) => {
+                self.queue = queue;
+                async { Message::None }.into()
+            }
             _ => Command::none(),
         };
 
@@ -234,7 +243,12 @@ impl Application for App {
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
-        time::every(std::time::Duration::from_millis(500)).map(|_| Message::Tick)
+        iced::Subscription::batch([
+            time::every(std::time::Duration::from_millis(500)).map(|_| Message::Tick),
+            iced::Subscription::from_recipe(QueuedTrackRecipe {
+                watch: self.player.blocking_lock().queued_watch(),
+            }),
+        ])
     }
 
     fn view(&mut self) -> iced::Element<Self::Message> {
@@ -287,10 +301,11 @@ impl App {
         for media in song.media.clone().transcodings {
             if media.format.mime_type == "audio/mpeg" {
                 let player = self.player.clone();
+                let id = song.object.id;
                 return async move {
                     tokio::task::spawn(async move {
                         if let Ok(m3u8) = media.resolve().await {
-                            player.lock().await.queue(&m3u8).await.unwrap();
+                            player.lock().await.queue(&m3u8, id).await.unwrap();
                         }
                     });
                     Message::None
@@ -302,5 +317,32 @@ impl App {
         warn!("No transcoding available for song");
 
         Command::none()
+    }
+}
+
+struct QueuedTrackRecipe {
+    watch: watch::Receiver<VecDeque<audio::TrackId>>,
+}
+
+impl<H, I> iced_native::subscription::Recipe<H, I> for QueuedTrackRecipe
+where
+    H: std::hash::Hasher,
+{
+    type Output = Message;
+
+    fn hash(&self, state: &mut H) {
+        use std::hash::Hash;
+
+        std::any::TypeId::of::<Self>().hash(state);
+        0.hash(state);
+    }
+
+    fn stream(self: Box<Self>, _input: BoxStream<I>) -> BoxStream<Self::Output> {
+        Box::pin(futures::stream::unfold(self, |mut state| async move {
+            state.watch.changed().await.map_or(None, |_| {
+                let cloned = state.watch.borrow().clone();
+                Some((Message::QueueChanged(cloned), state))
+            })
+        }))
     }
 }

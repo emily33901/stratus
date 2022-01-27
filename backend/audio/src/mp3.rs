@@ -7,8 +7,6 @@ use eyre::Result;
 use minimp3::{Decoder, Frame};
 use rodio::Source;
 
-use crate::hls_source::HlsReader;
-
 pub struct HlsDecoder<R>
 where
     R: Read + Seek,

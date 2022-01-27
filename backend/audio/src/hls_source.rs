@@ -55,14 +55,3 @@ impl io::Seek for HlsReader {
         }
     }
 }
-
-#[derive(Debug)]
-pub(crate) struct LazyReader {
-    pub(crate) playlist: MediaPlaylist,
-}
-
-impl LazyReader {
-    pub(crate) fn new(playlist: MediaPlaylist) -> Self {
-        LazyReader { playlist }
-    }
-}
