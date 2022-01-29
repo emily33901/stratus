@@ -15,10 +15,11 @@ where
     current_frame: Frame,
     current_frame_offset: usize,
     elapsed: usize,
+    finished_signal: tokio::sync::mpsc::Sender<()>,
 }
 
 impl<R: Read + Seek> HlsDecoder<R> {
-    pub fn new(data: R) -> Result<Self> {
+    pub fn new(data: R, finished_signal: &tokio::sync::mpsc::Sender<()>) -> Result<Self> {
         let mut decoder = Decoder::new(data);
         let current_frame = decoder.next_frame()?;
 
@@ -27,6 +28,7 @@ impl<R: Read + Seek> HlsDecoder<R> {
             current_frame,
             current_frame_offset: 0,
             elapsed: 0,
+            finished_signal: finished_signal.clone(),
         })
     }
 
@@ -71,7 +73,10 @@ where
         if self.current_frame_offset == self.current_frame.data.len() {
             match self.decoder.next_frame() {
                 Ok(frame) => self.current_frame = frame,
-                _ => return None,
+                _ => {
+                    self.finished_signal.blocking_send(()).unwrap();
+                    return None;
+                }
             }
             self.elapsed += self.current_frame_offset;
             self.current_frame_offset = 0;

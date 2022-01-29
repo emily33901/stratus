@@ -16,7 +16,7 @@ use hls_source::HlsReader;
 use log::{info, warn};
 use m3u8_rs::playlist::MediaPlaylist;
 use rodio::{Decoder, Source};
-use tokio::{sync::mpsc, sync::oneshot, sync::watch, sync::Mutex};
+use tokio::{select, sync::mpsc, sync::oneshot, sync::watch, sync::Mutex};
 
 use crate::mp3::HlsDecoder;
 
@@ -167,74 +167,83 @@ async fn player_control(
     // have to be copied around everwhere
     let mut queue = VecDeque::<QueuedTrack>::new();
 
-    while let Some(control) = control_rx.recv().await {
+    let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
+
+    loop {
         let downloader = downloader.clone();
-        match control {
-            PlayerControl::Pause => sink.lock().await.pause(),
-            PlayerControl::Resume => sink.lock().await.play(),
-            PlayerControl::SkipAll => reset_sink().await,
-            PlayerControl::SkipOne => {
-                if let Some(queued_track) = queue.pop_front() {
-                    queued_track_tx
-                        .send(queue.iter().map(|x| x.id).collect())
-                        .unwrap();
+        select! {
+            Some(control) = control_rx.recv() => {
+                match control {
+                    PlayerControl::Pause => sink.lock().await.pause(),
+                    PlayerControl::Resume => sink.lock().await.play(),
+                    PlayerControl::SkipAll => reset_sink().await,
+                    PlayerControl::SkipOne => {
+                        if let Some(queued_track) = queue.pop_front() {
+                            queued_track_tx
+                                .send(queue.iter().map(|x| x.id).collect())
+                                .unwrap();
 
-                    *total.lock() = queued_track
-                        .playlist
-                        .segments
-                        .iter()
-                        .map(|x| x.duration)
-                        .sum::<f32>();
+                            *total.lock() = queued_track
+                                .playlist
+                                .segments
+                                .iter()
+                                .map(|x| x.duration)
+                                .sum::<f32>();
 
-                    let reader = HlsReader::default();
-                    let r2 = reader.clone();
+                            let reader = HlsReader::default();
+                            let r2 = reader.clone();
 
-                    let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
+                            let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
 
-                    // TODO(emily): Need to add some cancel in here to stop this from happening after tracks are
-                    // skipped
-                    tokio::spawn(async move {
-                        for (i, s) in queued_track.playlist.segments.iter().enumerate() {
-                            let downloaded = downloader.download(&s.uri).await.unwrap();
-                            r2.add(&downloaded);
+                            // TODO(emily): Need to add some cancel in here to stop this from happening after tracks are
+                            // skipped
+                            tokio::spawn(async move {
+                                for (i, s) in queued_track.playlist.segments.iter().enumerate() {
+                                    let downloaded = downloader.download(&s.uri).await.unwrap();
+                                    r2.add(&downloaded);
 
-                            info!("downloaded {i}");
+                                    info!("downloaded {i}");
 
-                            if i == 1 {
-                                ready_tx.send(()).await.unwrap();
-                            }
+                                    if i == 1 {
+                                        ready_tx.send(()).await.unwrap();
+                                    }
+                                }
+                            });
+                            ready_rx.recv().await;
+
+                            cur_track_tx.send(Some(queued_track.id)).unwrap();
+
+                            reset_sink().await;
+                            let decoder = HlsDecoder::new(reader, &finished_signal_tx).unwrap();
+                            let pos = pos.clone();
+                            let periodic =
+                                decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                                    pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                                });
+                            let sink = sink.lock().await;
+                            sink.append(periodic);
+                            sink.play();
+                        } else {
+                            reset_sink().await;
                         }
-                    });
-                    ready_rx.recv().await;
-
-                    cur_track_tx.send(Some(queued_track.id)).unwrap();
-
-                    reset_sink().await;
-                    let decoder = HlsDecoder::new(reader).unwrap();
-                    let pos = pos.clone();
-                    let periodic =
-                        decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                            pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
-                        });
-                    let sink = sink.lock().await;
-                    sink.append(periodic);
-                    sink.play();
-                } else {
-                    reset_sink().await;
+                    }
+                    PlayerControl::Queue(playlist) => {
+                        info!("Queuing track");
+                        queue.push_back(playlist);
+                        queued_track_tx
+                            .send(queue.iter().map(|x| x.id).collect())
+                            .unwrap();
+                        if queue.len() == 1 && sink.lock().await.empty() {
+                            loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
+                        }
+                    }
+                    PlayerControl::Volume(_) => todo!(),
+                    PlayerControl::Seek(_) => todo!(),
                 }
             }
-            PlayerControl::Queue(playlist) => {
-                info!("Queuing track");
-                queue.push_back(playlist);
-                queued_track_tx
-                    .send(queue.iter().map(|x| x.id).collect())
-                    .unwrap();
-                if queue.len() == 1 && sink.lock().await.empty() {
-                    loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
-                }
+            _ = finished_signal_rx.recv() => {
+                loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
             }
-            PlayerControl::Volume(_) => todo!(),
-            PlayerControl::Seek(_) => todo!(),
         }
     }
 }
