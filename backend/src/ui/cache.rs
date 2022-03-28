@@ -56,7 +56,6 @@ where
     }
 
     pub fn write(&self, key: K, value: V) {
-        info!("Wrote {:?}", key);
         self.loaded.write().insert(key, value);
     }
 

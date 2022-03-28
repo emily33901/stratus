@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use iced::{Column, Command, Container, Element, Length, Scrollable, Text};
 

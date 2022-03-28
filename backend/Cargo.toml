@@ -18,7 +18,7 @@ scopeguard = "1.1"
 lazy_static = "1.4"
 derive_more = "0.99"
 futures = "0.3"
-iced = { version = "0.3", features = ["tokio", "image"] }
+iced = { version = "0.3", features = ["tokio", "image", "debug"] }
 log = "0.4"
 fern = "0.5"
 image = "0.23.14"
@@ -26,4 +26,11 @@ static_assertions = "1.1.0"
 audio = { path = "./audio" }
 async-trait = "0.1.50"
 parking_lot = "0.11.1"
-iced_native = "0.4.0"
+iced_native = "*"
+iced_core = "*"
+iced_style = "*"
+
+[profile.release.build-override]
+debug = true
+strip = true
+opt-level = 3

@@ -25,7 +25,7 @@ pub trait Downloader: Send + Sync {
     async fn download(&self, url: &str) -> Result<Vec<u8>>;
 }
 
-pub type TrackId = u64;
+pub type TrackId = i64;
 
 #[derive(Debug)]
 pub(crate) struct QueuedTrack {
@@ -34,7 +34,7 @@ pub(crate) struct QueuedTrack {
 }
 
 impl QueuedTrack {
-    pub(crate) fn new(playlist: MediaPlaylist, id: u64) -> Self {
+    pub(crate) fn new(playlist: MediaPlaylist, id: TrackId) -> Self {
         QueuedTrack { playlist, id }
     }
 }
@@ -72,6 +72,7 @@ impl HlsPlayer {
         let (cur_track_tx, cur_track_rx) = watch::channel(None);
         let (queued_track_tx, queued_track_rx) = watch::channel(VecDeque::new());
 
+        let cur_track_rx2 = cur_track_rx.clone();
         thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -84,6 +85,7 @@ impl HlsPlayer {
                     loop_total,
                     loop_control_tx,
                     cur_track_tx,
+                    cur_track_rx2,
                     queued_track_tx,
                 ));
         });
@@ -97,7 +99,7 @@ impl HlsPlayer {
         }
     }
 
-    pub async fn queue(&self, playlist: &str, id: u64) -> Result<()> {
+    pub async fn queue(&self, playlist: &str, id: TrackId) -> Result<()> {
         let bytes = playlist.as_bytes().to_vec();
         let playlist = m3u8_rs::parse_media_playlist_res(&bytes).unwrap();
 
@@ -148,6 +150,7 @@ async fn player_control(
     total: Arc<parking_lot::Mutex<f32>>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
     cur_track_tx: watch::Sender<Option<TrackId>>,
+    mut cur_track_rx: watch::Receiver<Option<TrackId>>,
     queued_track_tx: watch::Sender<VecDeque<TrackId>>,
 ) {
     let (sink, stream, handle) = {
@@ -170,7 +173,6 @@ async fn player_control(
     let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
 
     loop {
-        let downloader = downloader.clone();
         select! {
             Some(control) = control_rx.recv() => {
                 match control {
@@ -179,10 +181,12 @@ async fn player_control(
                     PlayerControl::SkipAll => reset_sink().await,
                     PlayerControl::SkipOne => {
                         if let Some(queued_track) = queue.pop_front() {
+                            // Resend the updated queue
                             queued_track_tx
                                 .send(queue.iter().map(|x| x.id).collect())
                                 .unwrap();
 
+                            // Calculate the total length of the track
                             *total.lock() = queued_track
                                 .playlist
                                 .segments
@@ -190,41 +194,40 @@ async fn player_control(
                                 .map(|x| x.duration)
                                 .sum::<f32>();
 
+                            let QueuedTrack { id, playlist } = queued_track;
+
+                            // Reset sink
+                            reset_sink().await;
+                            // Tell everyone that we are playing a new track
+                            cur_track_tx.send(Some(id)).unwrap();
+
                             let reader = HlsReader::default();
-                            let r2 = reader.clone();
 
                             let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
+                            let r2 = reader.clone();
+                            let cur_track_rx = cur_track_rx.clone();
+                            let downloader = downloader.clone();
+                            tokio::spawn(download_hls_segments(playlist, r2, downloader, ready_tx, cur_track_rx));
 
-                            // TODO(emily): Need to add some cancel in here to stop this from happening after tracks are
-                            // skipped
-                            tokio::spawn(async move {
-                                for (i, s) in queued_track.playlist.segments.iter().enumerate() {
-                                    let downloaded = downloader.download(&s.uri).await.unwrap();
-                                    r2.add(&downloaded);
-
-                                    info!("downloaded {i}");
-
-                                    if i == 1 {
-                                        ready_tx.send(()).await.unwrap();
-                                    }
-                                }
-                            });
-                            ready_rx.recv().await;
-
-                            cur_track_tx.send(Some(queued_track.id)).unwrap();
-
-                            reset_sink().await;
-                            let decoder = HlsDecoder::new(reader, &finished_signal_tx).unwrap();
-                            let pos = pos.clone();
-                            let periodic =
-                                decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                    pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
-                                });
-                            let sink = sink.lock().await;
-                            sink.append(periodic);
-                            sink.play();
+                            // If we got something back then we are good to go
+                            // Otherwise we failed to download the first segment...
+                            if ready_rx.recv().await.is_none() {
+                                warn!("Failed to download first HLS segment, unable to play");
+                            } else {
+                                let decoder = HlsDecoder::new(reader, &finished_signal_tx).unwrap();
+                                let pos = pos.clone();
+                                let periodic =
+                                    decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                                        pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                                    });
+                                let sink = sink.lock().await;
+                                sink.append(periodic);
+                                sink.play();
+                            }
                         } else {
+                            // Nothing in queue so reset sink and inform everyone
                             reset_sink().await;
+                            cur_track_tx.send(None).unwrap();
                         }
                     }
                     PlayerControl::Queue(playlist) => {
@@ -243,6 +246,40 @@ async fn player_control(
             }
             _ = finished_signal_rx.recv() => {
                 loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
+            }
+        }
+    }
+
+    warn!("player_control going down!");
+}
+
+async fn download_hls_segments(
+    playlist: MediaPlaylist,
+    r2: HlsReader,
+    downloader: Arc<dyn Downloader>,
+    ready_tx: mpsc::Sender<()>,
+    mut cur_track_rx: watch::Receiver<Option<TrackId>>,
+) {
+    // Acknowledge current track id
+    cur_track_rx.changed().await.unwrap();
+
+    for (i, s) in playlist.segments.iter().enumerate() {
+        select! {
+            downloaded = downloader.download(&s.uri) => {
+                if let Ok(downloaded) = downloaded {
+                    info!("downloaded {i}");
+                    r2.add(&downloaded);
+
+                    if i == 2 {
+                        ready_tx.send(()).await.unwrap();
+                    }
+                } else {
+                    warn!("Failed to download HLS Segment {} {:?}", i, downloaded);
+                }
+            }
+            Ok(_) = cur_track_rx.changed() => {
+                warn!("Track changed, stopping download");
+                break;
             }
         }
     }

@@ -20,10 +20,16 @@ impl Song {
             } else {
                 Row::new()
             }
-            .push(Column::new().push(Text::new(&self.song.title)))
             .push(
-                Button::new(&mut self.play_button_state, Text::new("add to queue"))
-                    .on_press(Message::SongQueue(self.song.clone())),
+                Column::new()
+                    .push(Text::new(&self.song.title))
+                    .width(Length::Shrink),
+            )
+            .width(Length::Shrink)
+            .push(
+                Button::new(&mut self.play_button_state, Text::new("Add to queue"))
+                    .on_press(Message::SongQueue(self.song.clone()))
+                    .style(crate::ui::style::Theme::Dark),
             )
         }
         .spacing(20)

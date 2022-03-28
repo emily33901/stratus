@@ -21,6 +21,7 @@ where
 impl<R: Read + Seek> HlsDecoder<R> {
     pub fn new(data: R, finished_signal: &tokio::sync::mpsc::Sender<()>) -> Result<Self> {
         let mut decoder = Decoder::new(data);
+        // Make sure that we have a frame ready to go
         let current_frame = decoder.next_frame()?;
 
         Ok(HlsDecoder {

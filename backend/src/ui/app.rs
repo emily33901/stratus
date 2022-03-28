@@ -1,6 +1,6 @@
 use audio::HlsPlayer;
 use futures::stream::BoxStream;
-use iced::time;
+use iced::{time, Container};
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -41,8 +41,7 @@ pub struct App {
     player: Arc<Mutex<audio::HlsPlayer>>,
     current_time: Arc<AtomicUsize>,
     total_time: f32,
-    queue: VecDeque<audio::TrackId>,
-
+    // queue: VecDeque<audio::TrackId>,
     scroll: iced::scrollable::State,
     controls: ControlsElement,
 }
@@ -60,7 +59,7 @@ impl Default for App {
             total_time: Default::default(),
             scroll: Default::default(),
             controls: Default::default(),
-            queue: Default::default(),
+            // queue: Default::default(),
         }
     }
 }
@@ -110,10 +109,19 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist =
-                    SoundCloud::playlist(Id::Url("https://soundcloud.com/f1ssi0n/sets/feel"))
-                        .await
-                        .unwrap();
+                let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/f1ssi0n"))
+                    .await
+                    .unwrap()
+                    .likes()
+                    .await
+                    .unwrap();
+
+                // let playlist = SoundCloud::playlist(Id::Url(
+                //     "https://soundcloud.com/tennysonmusic/sets/rot-164838109",
+                // ))
+                // .await
+                // .unwrap();
+
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
             }
@@ -190,7 +198,7 @@ impl Application for App {
                 .into()
             }
             Message::QueueChanged(queue) => {
-                self.queue = queue;
+                self.controls.queue = queue;
                 async { Message::None }.into()
             }
             _ => Command::none(),
@@ -253,35 +261,42 @@ impl Application for App {
 
     fn view(&mut self) -> iced::Element<Self::Message> {
         use iced::Element;
-        Column::new()
-            .push::<Element<Message>>(
-                Column::new()
-                    .push(match &mut self.page {
-                        Page::Main => Text::new("Main page").into(),
-                        Page::Playlist(playlist_page) => playlist_page.view(),
-                    })
-                    .height(iced::Length::FillPortion(1))
-                    .into(),
-            )
-            .push(
-                Column::new()
-                    .push(
-                        {
-                            self.controls.view(
-                                std::time::Duration::from_secs_f32(
-                                    self.current_time.load(Ordering::Relaxed) as f32
-                                        / 44100.0
-                                        / 2.0,
-                                ),
-                                std::time::Duration::from_secs_f32(self.total_time),
-                            )
-                        }
-                        .height(iced::Length::Units(40))
-                        .spacing(20),
-                    )
-                    .padding(20),
-            )
-            .into()
+        Container::new(
+            Column::new()
+                .push::<Element<Message>>(
+                    Column::new()
+                        .push(match &mut self.page {
+                            Page::Main => Text::new("Main page").into(),
+                            Page::Playlist(playlist_page) => playlist_page.view(),
+                        })
+                        .height(iced::Length::FillPortion(1))
+                        .into(),
+                )
+                .push(
+                    Column::new()
+                        .push(
+                            {
+                                self.controls.view(
+                                    std::time::Duration::from_secs_f32(
+                                        self.current_time.load(Ordering::Relaxed) as f32
+                                            / 44100.0
+                                            / 2.0,
+                                    ),
+                                    std::time::Duration::from_secs_f32(self.total_time),
+                                )
+                            }
+                            .height(iced::Length::Units(40))
+                            .spacing(20),
+                        )
+                        .padding(20),
+                ),
+        )
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill)
+        .center_x()
+        .center_y()
+        .style(crate::ui::style::Theme::Dark)
+        .into()
     }
 }
 

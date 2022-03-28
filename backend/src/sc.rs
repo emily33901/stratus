@@ -4,15 +4,22 @@ use eyre::Result;
 pub mod api {
     use image::ImageFormat;
     use log::{info, warn};
+    use parking_lot::Mutex;
+    use serde::Deserialize;
 
     pub mod model {
-
         use serde::{Deserialize, Deserializer, Serialize};
         use static_assertions::assert_impl_all;
 
+        /// Type that represents objects
+        /// 'Real' (i.e. actual things from the API) have positive ids
+        /// 'Fake' (i.e. things that we generate and pretend are real) have
+        /// negative ids
+        pub type Id = i64;
+
         #[derive(Debug, Deserialize, Serialize, Clone)]
         pub struct ObjectInside {
-            pub id: u64,
+            pub id: Id,
             pub kind: String,
             #[serde(rename = "permalink_url")]
             pub url: Option<String>,
@@ -21,7 +28,7 @@ pub mod api {
 
         #[derive(Debug, Serialize, Clone, Default)]
         pub struct Object {
-            pub id: u64,
+            pub id: Id,
             pub kind: String,
             #[serde(rename = "permalink_url")]
             pub url: Option<String>,
@@ -143,7 +150,7 @@ pub mod api {
         }
     }
 
-    use std::io::Cursor;
+    use std::{io::Cursor, sync::atomic::AtomicI64};
 
     use eyre::{eyre, Result, WrapErr};
     use lazy_static::lazy_static;
@@ -216,15 +223,26 @@ pub mod api {
         Ok(playlist)
     }
 
-    async fn object<T: for<'de> serde::Deserialize<'de>>(endpoint: &str, id: u64) -> Result<T> {
-        info!("Cache miss for {}", id);
+    #[derive(Debug, Default)]
+    struct Endpoint<'a> {
+        endpoint: &'a str,
+        params: Option<&'a [(&'a str, &'a str)]>,
+    }
+
+    async fn object<'a, T: for<'de> serde::Deserialize<'de>>(
+        endpoint: &'a Endpoint<'a>,
+    ) -> Result<T> {
+        info!("Cache miss for {:?}", endpoint);
 
         let client = reqwest::Client::new();
 
         let headers = COMMON_HEADERS.clone();
-        let params = *COMMON_PARAMS;
+        let mut params = Vec::from(*COMMON_PARAMS);
+        if let Some(extra_params) = endpoint.params {
+            params.extend(extra_params.iter());
+        }
 
-        let final_endpoint = format!("{}/{}/{}", API_ORIGIN, endpoint, id);
+        let final_endpoint = format!("{}/{}", API_ORIGIN, endpoint.endpoint);
 
         info!("GETting {}", final_endpoint);
 
@@ -242,21 +260,75 @@ pub mod api {
         Ok(object)
     }
 
+    fn next_fake_id() -> i64 {
+        static NEXT_FAKE_ID: AtomicI64 = AtomicI64::new(-1);
+        NEXT_FAKE_ID.fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
     impl model::User {
-        pub async fn resolve(id: u64) -> Result<Self> {
-            object("users", id).await
+        pub async fn resolve(id: i64) -> Result<Self> {
+            let endpoint = Endpoint {
+                endpoint: &format!("users/{}", id),
+                ..Default::default()
+            };
+            object(&endpoint).await
+        }
+
+        pub async fn likes(&self) -> Result<model::Playlist> {
+            #[derive(Deserialize)]
+            struct Like {
+                track: model::Song,
+            }
+
+            #[derive(Deserialize)]
+            struct Likes {
+                collection: Vec<Like>,
+            }
+            let endpoint = Endpoint {
+                endpoint: &format!("users/{}/track_likes", self.object.id),
+                params: Some(&[("limit", "100")]),
+                ..Default::default()
+            };
+
+            let likes: Likes = object(&endpoint).await?;
+            let id = next_fake_id();
+
+            Ok(model::Playlist {
+                object: Object {
+                    id,
+                    kind: "likes".into(),
+                    uri: None,
+                    url: None,
+                },
+                artwork: self.avatar.clone(),
+                user: self.object.clone(),
+                songs: likes
+                    .collection
+                    .into_iter()
+                    .map(|x| x.track.object)
+                    .collect(),
+                title: format!("Liked by {}", self.username),
+            })
         }
     }
 
     impl model::Song {
-        pub async fn resolve(id: u64) -> Result<Self> {
-            object("tracks", id).await
+        pub async fn resolve(id: i64) -> Result<Self> {
+            let endpoint = Endpoint {
+                endpoint: &format!("tracks/{}", id),
+                ..Default::default()
+            };
+            object(&endpoint).await
         }
     }
 
     impl model::Playlist {
-        pub async fn resolve(id: u64) -> Result<Self> {
-            object("playlists", id).await
+        pub async fn resolve(id: i64) -> Result<Self> {
+            let endpoint = Endpoint {
+                endpoint: &format!("playlists/{}", id),
+                ..Default::default()
+            };
+            object(&endpoint).await
         }
     }
 
@@ -289,7 +361,7 @@ pub mod api {
 
 pub enum Id<'a> {
     Url(&'a str),
-    Id(u64),
+    Id(i64),
 }
 
 pub struct SoundCloud {}
