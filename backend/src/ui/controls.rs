@@ -9,8 +9,8 @@ pub struct ControlsElement {
     play_button: button::State,
     pause_button: button::State,
     skip_button: button::State,
-    queue_state: pick_list::State<audio::TrackId>,
-    pub(crate) queue: VecDeque<audio::TrackId>,
+    queue_state: pick_list::State<audio::SongId>,
+    pub(crate) queue: VecDeque<audio::SongId>,
     slider: slider::State,
 }
 
@@ -49,7 +49,7 @@ impl ControlsElement {
                     self.queue
                         .iter()
                         .map(|x| *x)
-                        .collect::<Vec<audio::TrackId>>(),
+                        .collect::<Vec<audio::SongId>>(),
                     None,
                     |x| Message::None,
                 )

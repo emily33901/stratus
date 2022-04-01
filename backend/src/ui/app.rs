@@ -75,7 +75,7 @@ pub enum Message {
     Resume,
     Pause,
     Skip,
-    QueueChanged(VecDeque<audio::TrackId>),
+    QueueChanged(VecDeque<audio::SongId>),
 }
 
 struct Downloader {
@@ -336,7 +336,7 @@ impl App {
 }
 
 struct QueuedTrackRecipe {
-    watch: watch::Receiver<VecDeque<audio::TrackId>>,
+    watch: watch::Receiver<VecDeque<audio::SongId>>,
 }
 
 impl<H, I> iced_native::subscription::Recipe<H, I> for QueuedTrackRecipe
