@@ -109,7 +109,7 @@ impl Application for App {
         (
             Self::default(),
             async {
-                let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/f1ssi0n"))
+                let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/emilydotgg"))
                     .await
                     .unwrap()
                     .likes()

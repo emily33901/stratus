@@ -6,25 +6,32 @@ use std::{
 use eyre::Result;
 use minimp3::{Decoder, Frame};
 use rodio::Source;
+use tokio::sync::mpsc;
 
-pub struct HlsDecoder<R>
-where
-    R: Read + Seek,
-{
-    decoder: Decoder<R>,
+use crate::hls_source::HlsReader;
+
+pub struct HlsDecoder {
+    reader: HlsReader,
+    decoder: Decoder<HlsReader>,
     current_frame: Frame,
     current_frame_offset: usize,
     elapsed: usize,
     finished_signal: tokio::sync::mpsc::Sender<()>,
 }
 
-impl<R: Read + Seek> HlsDecoder<R> {
-    pub fn new(data: R, finished_signal: &tokio::sync::mpsc::Sender<()>) -> Result<Self> {
-        let mut decoder = Decoder::new(data);
+impl HlsDecoder {
+    pub fn new(
+        chunk_rx: mpsc::Receiver<Vec<u8>>,
+        finished_signal: &tokio::sync::mpsc::Sender<()>,
+    ) -> Result<Self> {
+        let reader = HlsReader::new(chunk_rx);
+        let mut decoder = Decoder::new(reader.clone());
+
         // Make sure that we have a frame ready to go
         let current_frame = decoder.next_frame()?;
 
         Ok(HlsDecoder {
+            reader,
             decoder,
             current_frame,
             current_frame_offset: 0,
@@ -38,10 +45,7 @@ impl<R: Read + Seek> HlsDecoder<R> {
     }
 }
 
-impl<R> Source for HlsDecoder<R>
-where
-    R: Read + Seek,
-{
+impl Source for HlsDecoder {
     #[inline]
     fn current_frame_len(&self) -> Option<usize> {
         Some(self.current_frame.data.len())
@@ -63,10 +67,7 @@ where
     }
 }
 
-impl<R> Iterator for HlsDecoder<R>
-where
-    R: Read + Seek,
-{
+impl Iterator for HlsDecoder {
     type Item = i16;
 
     #[inline]

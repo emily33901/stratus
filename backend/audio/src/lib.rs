@@ -201,29 +201,19 @@ async fn player_control(
                             // Tell everyone that we are playing a new track
                             cur_song_tx.send(Some(id)).unwrap();
 
-                            let reader = HlsReader::default();
-
-                            let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
-                            let r2 = reader.clone();
                             let cur_song_rx = cur_song_rx.clone();
                             let downloader = downloader.clone();
-                            tokio::spawn(download_hls_segments(playlist, r2, downloader, ready_tx, cur_song_rx));
+                            let chunk_rx = download_hls_segments(playlist, downloader, cur_song_rx).await;
 
-                            // If we got something back then we are good to go
-                            // Otherwise we failed to download the first segment...
-                            if ready_rx.recv().await.is_none() {
-                                warn!("Failed to download first HLS segment, unable to play");
-                            } else {
-                                let decoder = HlsDecoder::new(reader, &finished_signal_tx).unwrap();
-                                let pos = pos.clone();
-                                let periodic =
-                                    decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                        pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
-                                    });
-                                let sink = sink.lock().await;
-                                sink.append(periodic);
-                                sink.play();
-                            }
+                            let decoder = HlsDecoder::new(chunk_rx, &finished_signal_tx).unwrap();
+                            let pos = pos.clone();
+                            let periodic =
+                                decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                                    pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                                });
+                            let sink = sink.lock().await;
+                            sink.append(periodic);
+                            sink.play();
                         } else {
                             // Nothing in queue so reset sink and inform everyone
                             reset_sink().await;
@@ -255,32 +245,34 @@ async fn player_control(
 
 async fn download_hls_segments(
     playlist: MediaPlaylist,
-    r2: HlsReader,
     downloader: Arc<dyn Downloader>,
-    ready_tx: mpsc::Sender<()>,
     mut cur_song_rx: watch::Receiver<Option<SongId>>,
-) {
+) -> mpsc::Receiver<Vec<u8>> {
     // Acknowledge current track id
     cur_song_rx.changed().await.unwrap();
 
-    for (i, s) in playlist.segments.iter().enumerate() {
-        select! {
-            downloaded = downloader.download(&s.uri) => {
-                if let Ok(downloaded) = downloaded {
-                    info!("downloaded {i}");
-                    r2.add(&downloaded);
+    let (tx_chunk, rx_chunk) = mpsc::channel(3);
 
-                    if i == 2 {
-                        ready_tx.send(()).await.unwrap();
+    tokio::spawn(async move {
+        for (i, s) in playlist.segments.iter().enumerate() {
+            select! {
+                downloaded = downloader.download(&s.uri) => {
+                    if let Ok(downloaded) = downloaded {
+                        info!("downloaded {i}");
+
+                        tx_chunk.send(downloaded).await.unwrap();
+                        // r2.write().extend(&downloaded);
+                    } else {
+                        warn!("Failed to download HLS Segment {} {:?}", i, downloaded);
                     }
-                } else {
-                    warn!("Failed to download HLS Segment {} {:?}", i, downloaded);
+                }
+                Ok(_) = cur_song_rx.changed() => {
+                    warn!("Track changed, stopping download");
+                    break;
                 }
             }
-            Ok(_) = cur_song_rx.changed() => {
-                warn!("Track changed, stopping download");
-                break;
-            }
         }
-    }
+    });
+
+    return rx_chunk;
 }
