@@ -12,7 +12,6 @@ use std::{
 
 use async_trait::async_trait;
 use eyre::Result;
-use hls_source::HlsReader;
 use log::{info, warn};
 use m3u8_rs::playlist::MediaPlaylist;
 use rodio::{Decoder, Source};
@@ -205,7 +204,7 @@ async fn player_control(
                             let downloader = downloader.clone();
                             let chunk_rx = download_hls_segments(playlist, downloader, cur_song_rx).await;
 
-                            let decoder = HlsDecoder::new(chunk_rx, &finished_signal_tx).unwrap();
+                            let decoder = HlsDecoder::new(chunk_rx, &finished_signal_tx).await.unwrap();
                             let pos = pos.clone();
                             let periodic =
                                 decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
@@ -251,7 +250,7 @@ async fn download_hls_segments(
     // Acknowledge current track id
     cur_song_rx.changed().await.unwrap();
 
-    let (tx_chunk, rx_chunk) = mpsc::channel(3);
+    let (tx_chunk, rx_chunk) = mpsc::channel(10);
 
     tokio::spawn(async move {
         for (i, s) in playlist.segments.iter().enumerate() {
@@ -260,16 +259,22 @@ async fn download_hls_segments(
                     if let Ok(downloaded) = downloaded {
                         info!("downloaded {i}");
 
-                        tx_chunk.send(downloaded).await.unwrap();
+                        match tx_chunk.send(downloaded).await {
+                            Ok(_) => {}
+                            Err(err) => {
+                                warn!("rx died - Stopping download");
+                                break;
+                            }
+                        }
                         // r2.write().extend(&downloaded);
                     } else {
                         warn!("Failed to download HLS Segment {} {:?}", i, downloaded);
                     }
                 }
-                Ok(_) = cur_song_rx.changed() => {
-                    warn!("Track changed, stopping download");
-                    break;
-                }
+                // Ok(_) = cur_song_rx.changed() => {
+                //     warn!("Track changed, stopping download");
+                //     break;
+                // }
             }
         }
     });
