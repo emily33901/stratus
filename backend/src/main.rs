@@ -5,6 +5,8 @@ use eyre::Result;
 use iced::Application;
 
 fn main() -> Result<()> {
+    // console_subscriber::init();
+
     fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -41,5 +43,14 @@ fn main() -> Result<()> {
         }
     }
 
-    Ok(ui::App::run(iced::Settings::default())?)
+    let font = std::fs::read(
+        r"C:\Users\josh\AppData\Local\Microsoft\Windows\Fonts\RecMonoCasual-Regular-1.084.ttf",
+    )
+    .unwrap();
+    let options: iced::Settings<()> = iced::Settings {
+        default_font: Some(unsafe { std::mem::transmute(font.as_slice()) }),
+        ..Default::default()
+    };
+
+    Ok(ui::App::run(options)?)
 }

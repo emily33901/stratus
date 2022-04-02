@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1.8.1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 json = "0.12"
@@ -29,8 +29,10 @@ parking_lot = "0.11.1"
 iced_native = "*"
 iced_core = "*"
 iced_style = "*"
+fuzzy-matcher = "*"
+# console-subscriber = "*"
 
-[profile.release.build-override]
+[profile.release]
 debug = true
 strip = true
 opt-level = 3

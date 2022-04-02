@@ -8,6 +8,7 @@ use super::{app::Message, cache::ImageCache};
 
 pub struct Song {
     song: sc::Song,
+    user: Option<sc::User>,
     image_cache: Arc<ImageCache>,
     play_button_state: iced::button::State,
 }
@@ -21,19 +22,26 @@ impl Song {
                 Row::new()
             }
             .push(
-                Column::new()
-                    .push(Text::new(&self.song.title))
-                    .width(Length::Shrink),
-            )
-            .width(Length::Shrink)
-            .push(
-                Button::new(&mut self.play_button_state, Text::new("Add to queue"))
-                    .on_press(Message::SongQueue(self.song.clone()))
-                    .style(crate::ui::style::Theme::Dark),
+                Row::new()
+                    .push(
+                        Column::new()
+                            .push(Text::new(&self.song.title))
+                            .width(Length::Shrink),
+                    )
+                    .width(Length::Shrink)
+                    .push(
+                        Button::new(&mut self.play_button_state, Text::new("Add to queue"))
+                            .on_press(Message::SongQueue(self.song.clone()))
+                            .style(crate::ui::style::Theme::Dark),
+                    ),
             )
         }
         .spacing(20)
         .into()
+    }
+
+    pub fn title(&self) -> &str {
+        &self.song.title
     }
 }
 
@@ -41,6 +49,7 @@ impl Song {
     pub fn new(song: sc::Song, image_cache: Arc<ImageCache>) -> Self {
         Self {
             song,
+            user: None,
             image_cache,
             play_button_state: iced::button::State::new(),
         }

@@ -76,6 +76,7 @@ pub enum Message {
     Pause,
     Skip,
     QueueChanged(VecDeque<audio::SongId>),
+    PlaylistFilterChange(String),
 }
 
 struct Downloader {
@@ -115,12 +116,6 @@ impl Application for App {
                     .likes()
                     .await
                     .unwrap();
-
-                // let playlist = SoundCloud::playlist(Id::Url(
-                //     "https://soundcloud.com/tennysonmusic/sets/rot-164838109",
-                // ))
-                // .await
-                // .unwrap();
 
                 SoundCloud::frame();
                 Message::PlaylistClicked(playlist)
@@ -201,6 +196,7 @@ impl Application for App {
                 self.controls.queue = queue;
                 async { Message::None }.into()
             }
+            Message::PlaylistFilterChange(string) => self.playlist_filter_changed(&string),
             _ => Command::none(),
         };
 
@@ -330,6 +326,14 @@ impl App {
         }
 
         warn!("No transcoding available for song");
+
+        Command::none()
+    }
+
+    fn playlist_filter_changed(&mut self, string: &str) -> iced::Command<Message> {
+        if let Page::Playlist(page) = &mut self.page {
+            page.filter_changed(string);
+        }
 
         Command::none()
     }
