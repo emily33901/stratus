@@ -1,21 +1,41 @@
-use std::{collections::VecDeque, ops::RangeInclusive, time};
+use std::{collections::VecDeque, ops::RangeInclusive, sync::Arc, time};
 
 use iced::{button, pick_list, slider, Button, Row, Slider, Text, Tooltip};
+use tokio::sync::watch;
 
-use super::app::Message;
+use super::{app::Message, cache::SongCache};
 
-#[derive(Default)]
 pub struct ControlsElement {
     play_button: button::State,
     pause_button: button::State,
     skip_button: button::State,
-    queue_state: pick_list::State<audio::SongId>,
+    cur_track_rx: watch::Receiver<Option<audio::SongId>>,
+    queue_state: pick_list::State<String>,
     pub(crate) queue: VecDeque<audio::SongId>,
     slider: slider::State,
+    song_cache: Arc<SongCache>,
 }
 
 impl ControlsElement {
+    pub fn new(
+        song_cache: Arc<SongCache>,
+        cur_track_rx: watch::Receiver<Option<audio::SongId>>,
+    ) -> Self {
+        Self {
+            song_cache,
+            play_button: Default::default(),
+            pause_button: Default::default(),
+            skip_button: Default::default(),
+            cur_track_rx,
+            queue_state: Default::default(),
+            queue: Default::default(),
+            slider: Default::default(),
+        }
+    }
+
     pub fn view(&mut self, location: time::Duration, total: time::Duration) -> Row<Message> {
+        use ellipse::Ellipse;
+        let song_cache = self.song_cache.clone();
         Row::new()
             .push(
                 Button::new(&mut self.play_button, Text::new("play"))
@@ -48,9 +68,27 @@ impl ControlsElement {
                     &mut self.queue_state,
                     self.queue
                         .iter()
-                        .map(|x| *x)
-                        .collect::<Vec<audio::SongId>>(),
-                    None,
+                        .map(|id| {
+                            song_cache.try_get(&crate::sc::Object {
+                                id: *id,
+                                kind: "track".into(),
+                                ..Default::default()
+                            })
+                        })
+                        .filter_map(|song| {
+                            song.map(|song| song.title.as_str().truncate_ellipse(30).into())
+                        })
+                        .collect::<Vec<String>>(),
+                    self.cur_track_rx
+                        .borrow()
+                        .and_then(|id| {
+                            song_cache.try_get(&crate::sc::Object {
+                                id: id,
+                                kind: "track".into(),
+                                ..Default::default()
+                            })
+                        })
+                        .map(|x| x.title.as_str().truncate_ellipse(30).into()),
                     |x| Message::None,
                 )
                 .style(crate::ui::style::Theme::Dark),

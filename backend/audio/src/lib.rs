@@ -140,6 +140,10 @@ impl HlsPlayer {
     pub fn queued_watch(&self) -> watch::Receiver<VecDeque<SongId>> {
         self.queued_song.clone()
     }
+
+    pub fn cur_song(&self) -> watch::Receiver<Option<SongId>> {
+        self.cur_song.clone()
+    }
 }
 
 async fn player_control(
@@ -204,15 +208,22 @@ async fn player_control(
                             let downloader = downloader.clone();
                             let chunk_rx = download_hls_segments(playlist, downloader, cur_song_rx).await;
 
-                            let decoder = HlsDecoder::new(chunk_rx, &finished_signal_tx).await.unwrap();
-                            let pos = pos.clone();
-                            let periodic =
-                                decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                    pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
-                                });
-                            let sink = sink.lock().await;
-                            sink.append(periodic);
-                            sink.play();
+                            match HlsDecoder::new(chunk_rx, &finished_signal_tx).await {
+                                Ok(decoder) => {
+                                    let pos = pos.clone();
+                                    let periodic =
+                                        decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                                            pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                                        });
+                                    let sink = sink.lock().await;
+                                    sink.append(periodic);
+                                    sink.play();
+                                }
+                                Err(err) => {
+                                    warn!("Failed to get first chunks of HlsDecoder {:?}", err);
+                                    loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
+                                }
+                            }
                         } else {
                             // Nothing in queue so reset sink and inform everyone
                             reset_sink().await;

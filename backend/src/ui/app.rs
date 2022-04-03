@@ -48,19 +48,25 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        Self {
+        let song_cache = Arc::new(SongCache::default());
+        let player = Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new()))));
+        let cur_track_rx = player.blocking_lock().cur_song();
+
+        let mut zelf = Self {
             page: Default::default(),
             playlist: Default::default(),
             image_cache: Default::default(),
-            song_cache: Default::default(),
+            song_cache: song_cache.clone(),
             user_cache: Default::default(),
-            player: Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new())))),
+            player,
             current_time: Default::default(),
             total_time: Default::default(),
             scroll: Default::default(),
-            controls: Default::default(),
+            controls: ControlsElement::new(song_cache, cur_track_rx),
             // queue: Default::default(),
-        }
+        };
+
+        zelf
     }
 }
 
@@ -199,6 +205,7 @@ impl Application for App {
                 self.controls.queue = queue;
                 async { Message::None }.into()
             }
+            Message::QueuePlaylist => self.queue_playlist(),
             Message::PlaylistFilterChange(string) => self.playlist_filter_changed(&string),
             _ => Command::none(),
         };
@@ -207,7 +214,7 @@ impl Application for App {
 
         fn make_backoff() -> ExponentialBackoff {
             ExponentialBackoff {
-                initial_interval: std::time::Duration::from_secs_f32(10.0),
+                initial_interval: std::time::Duration::from_secs_f32(15.0),
                 randomization_factor: 0.5,
                 ..Default::default()
             }
@@ -345,7 +352,7 @@ impl App {
         }
     }
 
-    fn queue_song(&mut self, song: &sc::Song) -> iced::Command<Message> {
+    fn queue_song(&self, song: &sc::Song) -> iced::Command<Message> {
         for media in song.media.clone().transcodings {
             if media.format.mime_type == "audio/mpeg" {
                 let player = self.player.clone();
@@ -373,6 +380,14 @@ impl App {
         }
 
         Command::none()
+    }
+
+    fn queue_playlist(&mut self) -> iced::Command<Message> {
+        if let Page::Playlist(page) = &self.page {
+            iced::Command::batch(page.songs().map(|song| self.queue_song(song)))
+        } else {
+            Command::none()
+        }
     }
 }
 

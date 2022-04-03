@@ -55,6 +55,14 @@ impl Song {
     pub fn user_id(&self) -> sc::api::model::Id {
         self.song.user.id
     }
+
+    pub fn song(&self) -> &sc::api::model::Song {
+        &self.song
+    }
+
+    pub fn username(&self) -> Option<&String> {
+        self.user.as_ref().map(|user| &user.username)
+    }
 }
 
 impl Song {

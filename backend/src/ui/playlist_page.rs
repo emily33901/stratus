@@ -8,7 +8,7 @@ use super::{
     cache::{ImageCache, UserCache},
     song::Song,
 };
-use crate::sc;
+use crate::sc::{self, api::model};
 
 #[derive(Default)]
 struct SongHolder {
@@ -95,7 +95,7 @@ impl PlaylistPage {
         // let filter = &self.filter_text;
         let matcher = SkimMatcherV2::default();
 
-        if str.len() == 0 {
+        if str.len() < 2 {
             let _ = self
                 .songs
                 .iter_mut()
@@ -106,8 +106,13 @@ impl PlaylistPage {
                 song.display = song
                     .song
                     .as_ref()
-                    .and_then(|song| matcher.fuzzy_match(song.title(), str))
-                    .map(|_| true)
+                    .map(|song| {
+                        matcher.fuzzy_match(song.title(), str).is_some()
+                            || song
+                                .username()
+                                .and_then(|username| matcher.fuzzy_match(username, str))
+                                .is_some()
+                    })
                     .unwrap_or_default();
             }
         }
@@ -156,5 +161,12 @@ impl PlaylistPage {
         }
 
         Command::none()
+    }
+
+    pub fn songs(&self) -> impl Iterator<Item = &'_ model::Song> + '_ {
+        self.songs
+            .iter()
+            .filter_map(|h| h.song.as_ref())
+            .map(|s| s.song())
     }
 }

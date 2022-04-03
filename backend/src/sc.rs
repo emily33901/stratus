@@ -286,7 +286,7 @@ pub mod api {
             }
             let endpoint = Endpoint {
                 endpoint: &format!("users/{}/track_likes", self.object.id),
-                params: Some(&[("limit", "400")]),
+                params: Some(&[("limit", "50")]),
                 ..Default::default()
             };
 
