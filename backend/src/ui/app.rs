@@ -70,6 +70,7 @@ pub enum Message {
     Tick,
     PlaylistClicked(sc::Playlist),
     SongLoaded(sc::Song),
+    UserLoaded(sc::User),
     ImageLoaded((String, Handle)),
     SongQueue(sc::Song),
     Resume,
@@ -77,6 +78,7 @@ pub enum Message {
     Skip,
     QueueChanged(VecDeque<audio::SongId>),
     PlaylistFilterChange(String),
+    QueuePlaylist,
 }
 
 struct Downloader {
@@ -133,10 +135,10 @@ impl Application for App {
         message: Self::Message,
         _clipboard: &mut iced::Clipboard,
     ) -> Command<Self::Message> {
-        match &message {
-            Message::None | Message::Tick => (),
-            message => info!("{:?}", message),
-        }
+        // match &message {
+        //     Message::None | Message::Tick => (),
+        //     message => info!("{:?}", message),
+        // }
 
         let msg_command = match message {
             Message::PlaylistClicked(playlist) => {
@@ -164,6 +166,7 @@ impl Application for App {
                 Command::none()
             }
             Message::SongLoaded(song) => self.song_loaded(&song),
+            Message::UserLoaded(user) => self.user_loaded(&user),
             Message::SongQueue(song) => self.queue_song(&song),
             Message::Resume => {
                 let player = self.player.clone();
@@ -200,20 +203,29 @@ impl Application for App {
             _ => Command::none(),
         };
 
+        use backoff::ExponentialBackoff;
+
+        fn make_backoff() -> ExponentialBackoff {
+            ExponentialBackoff {
+                initial_interval: std::time::Duration::from_secs_f32(10.0),
+                randomization_factor: 0.5,
+                ..Default::default()
+            }
+        }
+
         // Queue loading images that need it
         let image_loads = Command::batch(self.image_cache.needs_loading().into_iter().map(|url| {
             async {
                 info!("Loading image: {}", url);
-                match reqwest::get(&url).await {
-                    Ok(response) => {
-                        let bytes = response.bytes().await.unwrap().to_vec();
-                        Message::ImageLoaded((url, Handle::from_memory(bytes)))
-                    }
-                    Err(err) => {
-                        warn!("Failed to get {}: {}", &url, err);
-                        Message::None
-                    }
-                }
+
+                let bytes = backoff::future::retry(make_backoff(), || async {
+                    let response = reqwest::get(&url).await?;
+                    Ok(response.bytes().await.unwrap().to_vec())
+                })
+                .await
+                .unwrap();
+
+                Message::ImageLoaded((url, Handle::from_memory(bytes)))
             }
             .into()
         }));
@@ -222,13 +234,28 @@ impl Application for App {
             Command::batch(self.song_cache.needs_loading().into_iter().map(|object| {
                 async move {
                     info!("Loading song: {}", object.id);
-                    match SoundCloud::song(Id::Id(object.id)).await {
-                        Ok(song) => Message::SongLoaded(song),
-                        Err(err) => {
-                            warn!("Failed to get {}: {}", object.id, err);
-                            Message::None
-                        }
-                    }
+
+                    backoff::future::retry(make_backoff(), || async {
+                        let song = SoundCloud::song(Id::Id(object.id)).await?;
+                        Ok(Message::SongLoaded(song))
+                    })
+                    .await
+                    .unwrap()
+                }
+                .into()
+            }));
+
+        let user_loads =
+            Command::batch(self.user_cache.needs_loading().into_iter().map(|object| {
+                async move {
+                    info!("Loading user: {}", object.id);
+
+                    backoff::future::retry(make_backoff(), || async {
+                        let user = SoundCloud::user(Id::Id(object.id)).await?;
+                        Ok(Message::UserLoaded(user))
+                    })
+                    .await
+                    .unwrap()
                 }
                 .into()
             }));
@@ -243,7 +270,7 @@ impl Application for App {
 
         self.total_time = self.player.blocking_lock().total();
 
-        Command::batch([msg_command, image_loads, song_loads, update_pos])
+        Command::batch([msg_command, image_loads, song_loads, user_loads, update_pos])
     }
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
@@ -302,10 +329,20 @@ impl App {
         self.song_cache.write(song.object.clone(), song.clone());
 
         if let Page::Playlist(playlist_page) = &mut self.page {
-            playlist_page.song_loaded(song, self.image_cache.clone());
+            playlist_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
+        } else {
+            Command::none()
         }
+    }
 
-        Command::none()
+    fn user_loaded(&mut self, user: &sc::User) -> iced::Command<Message> {
+        info!("User loaded: {}", user.username);
+        self.user_cache.write(user.object.clone(), user.clone());
+        if let Page::Playlist(page) = &mut self.page {
+            page.user_loaded(user, self.image_cache.clone())
+        } else {
+            Command::none()
+        }
     }
 
     fn queue_song(&mut self, song: &sc::Song) -> iced::Command<Message> {

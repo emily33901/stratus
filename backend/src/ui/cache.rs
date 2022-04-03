@@ -7,8 +7,6 @@ use std::{
 use iced::{image::Handle, Image};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 
-use log::{info, warn};
-
 use crate::sc;
 
 pub struct Cache<K, V> {
@@ -43,7 +41,6 @@ where
         RwLockReadGuard::try_map(read, |read| match read.get(key) {
             None => {
                 if self.blacklist.read().contains(key) {
-                    // warn!("{:?} is already blacklisted. NOT trying again", key);
                 } else {
                     self.blacklist.write().insert(key.clone());
                     self.needs_loading.lock().push(key.clone());

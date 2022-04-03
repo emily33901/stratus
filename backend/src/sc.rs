@@ -129,7 +129,7 @@ pub mod api {
         pub async fn preload(&self) {
             // TEMP(emily):
             // do not preload since we dont cache right now
-            info!("Not preloading");
+            // info!("Not preloading");
             return;
 
             info!("Preloading: {}({})", self.kind, self.id);
@@ -286,7 +286,7 @@ pub mod api {
             }
             let endpoint = Endpoint {
                 endpoint: &format!("users/{}/track_likes", self.object.id),
-                params: Some(&[("limit", "100")]),
+                params: Some(&[("limit", "400")]),
                 ..Default::default()
             };
 

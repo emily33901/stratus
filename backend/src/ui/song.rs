@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use iced::{Button, Column, Element, Length, Row, Text};
 
-use crate::sc;
+use crate::sc::{self, Id};
 
 use super::{app::Message, cache::ImageCache};
 
 pub struct Song {
     song: sc::Song,
-    user: Option<sc::User>,
+    pub user: Option<sc::User>,
     image_cache: Arc<ImageCache>,
     play_button_state: iced::button::State,
 }
@@ -26,9 +26,17 @@ impl Song {
                     .push(
                         Column::new()
                             .push(Text::new(&self.song.title))
+                            .push(Text::new(
+                                self.user
+                                    .as_ref()
+                                    .map(|user| user.username.clone())
+                                    .unwrap_or_default(),
+                            ))
+                            .spacing(20)
                             .width(Length::Shrink),
                     )
-                    .width(Length::Shrink)
+                    .width(Length::Fill)
+                    .spacing(20)
                     .push(
                         Button::new(&mut self.play_button_state, Text::new("Add to queue"))
                             .on_press(Message::SongQueue(self.song.clone()))
@@ -42,6 +50,10 @@ impl Song {
 
     pub fn title(&self) -> &str {
         &self.song.title
+    }
+
+    pub fn user_id(&self) -> sc::api::model::Id {
+        self.song.user.id
     }
 }
 
