@@ -2,7 +2,7 @@
 name = "backend"
 version = "0.1.0"
 authors = ["Emily Hudson <emily33901@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,6 +30,8 @@ iced_native = "*"
 iced_core = "*"
 iced_style = "*"
 fuzzy-matcher = "*"
+backoff = { version = "0.3", features = ["tokio"] }
+ellipse = "0.2.0"
 # console-subscriber = "*"
 
 [profile.release]

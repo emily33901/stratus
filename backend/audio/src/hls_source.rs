@@ -3,6 +3,7 @@ use std::{
     task::Poll,
 };
 
+use log::{info, warn};
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc::Receiver;
 
@@ -36,6 +37,7 @@ impl AsyncRead for HlsReader {
 
         if buf.remaining() == 0 {
             // Early out as the buffer is full
+            info!("Early out r:{} l:{}", buf.capacity(), self.store.len());
             return Poll::Ready(Ok(()));
         }
 
@@ -44,6 +46,10 @@ impl AsyncRead for HlsReader {
             Poll::Ready(Some(chunk)) => {
                 // Figure out what len we can put into the buffer
                 let len = buf.remaining().min(chunk.len());
+                if len == 10 {
+                    println!("{:?} ({})", chunk, String::from_utf8_lossy(&chunk));
+                }
+                info!("l:{} r:{}", chunk.len(), buf.remaining());
                 buf.put_slice(&chunk[..len]);
                 // Put the rest into the store for next time
                 self.store.extend(&chunk[len..]);

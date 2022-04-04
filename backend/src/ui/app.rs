@@ -9,7 +9,7 @@ use tokio::sync::{watch, Mutex};
 
 use async_trait::async_trait;
 
-use eyre::Result;
+use eyre::{eyre, Result};
 use iced::image::Handle;
 use iced::{self, executor, Application, Column, Command, Text};
 use log::{info, warn};
@@ -17,6 +17,7 @@ use log::{info, warn};
 use super::cache::{ImageCache, SongCache, UserCache};
 use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
+use crate::sc::api::model::Transcoding;
 use crate::sc::{self, Id, SoundCloud};
 
 enum Page {
@@ -49,7 +50,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let song_cache = Arc::new(SongCache::default());
-        let player = Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new()))));
+        let player = Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new(
+            song_cache.clone(),
+        )))));
         let cur_track_rx = player.blocking_lock().cur_song();
 
         let mut zelf = Self {
@@ -89,21 +92,52 @@ pub enum Message {
 
 struct Downloader {
     client: reqwest::Client,
+    song_cache: Arc<SongCache>,
 }
 
 impl Downloader {
-    fn new() -> Self {
+    fn new(song_cache: Arc<SongCache>) -> Self {
         Self {
             client: reqwest::Client::new(),
+            song_cache,
         }
     }
 }
 
 #[async_trait]
 impl audio::Downloader for Downloader {
-    async fn download(&self, url: &str) -> Result<Vec<u8>> {
+    async fn download_chunk(&self, url: &str) -> Result<Vec<u8>> {
         let response = self.client.get(url).send().await?;
-        Ok(response.bytes().await?.to_vec())
+        // make sure that if the server returns an error (e.g. Forbidden)
+        // that we pass it back up to whoever called us
+        Ok(response.error_for_status()?.bytes().await?.to_vec())
+    }
+
+    async fn playlist(&self, id: audio::SongId) -> Result<String> {
+        // Try and get mpeg transcoding from song
+        let (title, transcodings) = self
+            .song_cache
+            .try_get(&sc::Object {
+                id,
+                kind: "track".into(),
+                ..Default::default()
+            })
+            .map(|song| (song.title.clone(), song.media.transcodings.clone()))
+            .ok_or(eyre!("No such song {} in song cache", id))?;
+
+        if let Some(transcoding) = transcodings
+            .iter()
+            .find(|t| t.format.mime_type == "audio/mpeg")
+        {
+            let result = transcoding.resolve().await;
+            Ok(result?)
+        } else {
+            warn!(
+                "Song {} missing mpeg transcoding (available transcodings were {:?})",
+                &title, &transcodings
+            );
+            Err(eyre!("No such mpeg transcoding for SongId {}", id))
+        }
     }
 }
 
@@ -369,7 +403,7 @@ impl App {
             }
         }
 
-        warn!("No transcoding available for song");
+        warn!("No transcoding available for song {}?", &song.title);
 
         Command::none()
     }

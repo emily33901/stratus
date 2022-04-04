@@ -21,22 +21,19 @@ use crate::mp3::HlsDecoder;
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
-    async fn download(&self, url: &str) -> Result<Vec<u8>>;
+    /// Download a chunk of a HLS stream
+    async fn download_chunk(&self, url: &str) -> Result<Vec<u8>>;
+    /// Download a playlist for a SongId
+    async fn playlist(&self, id: SongId) -> Result<String>;
+    /// Downloads a playlist for a SongId and parses it
+    async fn media_playlist(&self, id: SongId) -> Result<MediaPlaylist> {
+        let playlist = self.playlist(id).await?;
+        let bytes = playlist.as_bytes().to_vec();
+        Ok(m3u8_rs::parse_media_playlist(&bytes).unwrap().1)
+    }
 }
 
 pub type SongId = i64;
-
-#[derive(Debug)]
-pub(crate) struct QueuedSong {
-    pub(crate) playlist: MediaPlaylist,
-    pub(crate) id: SongId,
-}
-
-impl QueuedSong {
-    pub(crate) fn new(playlist: MediaPlaylist, id: SongId) -> Self {
-        QueuedSong { playlist, id }
-    }
-}
 
 #[derive(Debug)]
 enum PlayerControl {
@@ -46,7 +43,7 @@ enum PlayerControl {
     SkipOne,
     Volume(f32),
     Seek(usize),
-    Queue(QueuedSong),
+    Queue(SongId),
 }
 
 pub struct HlsPlayer {
@@ -102,10 +99,7 @@ impl HlsPlayer {
         let bytes = playlist.as_bytes().to_vec();
         let playlist = m3u8_rs::parse_media_playlist_res(&bytes).unwrap();
 
-        Ok(self
-            .control
-            .send(PlayerControl::Queue(QueuedSong::new(playlist, id)))
-            .await?)
+        Ok(self.control.send(PlayerControl::Queue(id)).await?)
     }
 
     pub async fn resume(&self) -> Result<()> {
@@ -171,7 +165,7 @@ async fn player_control(
 
     // TODO(emily): Queue should probably just be a shared bit of memory so that it doesn't
     // have to be copied around everwhere
-    let mut queue = VecDeque::<QueuedSong>::new();
+    let mut queue = VecDeque::<SongId>::new();
 
     let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
 
@@ -183,26 +177,26 @@ async fn player_control(
                     PlayerControl::Resume => sink.lock().await.play(),
                     PlayerControl::SkipAll => reset_sink().await,
                     PlayerControl::SkipOne => {
-                        if let Some(queued_track) = queue.pop_front() {
+                        if let Some(queued_song) = queue.pop_front() {
                             // Resend the updated queue
                             queued_song_tx
-                                .send(queue.iter().map(|x| x.id).collect())
+                                .send(queue.clone())
                                 .unwrap();
 
+                            // Ask for the playlist AOT
+                            let playlist = downloader.media_playlist(queued_song).await.unwrap();
+
                             // Calculate the total length of the track
-                            *total.lock() = queued_track
-                                .playlist
+                            *total.lock() = playlist
                                 .segments
                                 .iter()
                                 .map(|x| x.duration)
                                 .sum::<f32>();
 
-                            let QueuedSong { id, playlist } = queued_track;
-
                             // Reset sink
                             reset_sink().await;
                             // Tell everyone that we are playing a new track
-                            cur_song_tx.send(Some(id)).unwrap();
+                            cur_song_tx.send(Some(queued_song)).unwrap();
 
                             let cur_song_rx = cur_song_rx.clone();
                             let downloader = downloader.clone();
@@ -234,7 +228,7 @@ async fn player_control(
                         info!("Queuing track");
                         queue.push_back(playlist);
                         queued_song_tx
-                            .send(queue.iter().map(|x| x.id).collect())
+                            .send(queue.clone())
                             .unwrap();
                         if queue.len() == 1 && sink.lock().await.empty() {
                             loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
@@ -249,43 +243,49 @@ async fn player_control(
             }
         }
     }
-
-    warn!("player_control going down!");
 }
 
 async fn download_hls_segments(
-    playlist: MediaPlaylist,
+    mut playlist: MediaPlaylist,
     downloader: Arc<dyn Downloader>,
     mut cur_song_rx: watch::Receiver<Option<SongId>>,
 ) -> mpsc::Receiver<Vec<u8>> {
     // Acknowledge current track id
     cur_song_rx.changed().await.unwrap();
+    let id = cur_song_rx.borrow().clone().unwrap();
 
     let (tx_chunk, rx_chunk) = mpsc::channel(10);
 
-    tokio::spawn(async move {
-        for (i, s) in playlist.segments.iter().enumerate() {
-            select! {
-                downloaded = downloader.download(&s.uri) => {
-                    if let Ok(downloaded) = downloaded {
-                        info!("downloaded {i}");
+    let mut i = 0;
 
-                        match tx_chunk.send(downloaded).await {
-                            Ok(_) => {}
-                            Err(err) => {
-                                warn!("rx died - Stopping download");
-                                break;
-                            }
+    tokio::spawn(async move {
+        while i < playlist.segments.len() {
+            match downloader.download_chunk(&playlist.segments[i].uri).await {
+                Ok(chunk) => {
+                    // We successfully got the ith chunk, lets keep going
+                    i += 1;
+                    info!("downloaded {i}");
+
+                    match tx_chunk.send(chunk).await {
+                        Ok(_) => {}
+                        Err(err) => {
+                            warn!("rx died ({:?}) - Stopping download", err);
+                            break;
                         }
-                        // r2.write().extend(&downloaded);
-                    } else {
-                        warn!("Failed to download HLS Segment {} {:?}", i, downloaded);
                     }
                 }
-                // Ok(_) = cur_song_rx.changed() => {
-                //     warn!("Track changed, stopping download");
-                //     break;
-                // }
+                Err(err) => {
+                    warn!("Failed to download HLS Segment {} {:?}", i, err);
+                    // NOTE(emily): The playlist we were downloading might have just expired
+                    // So we are going to try and get the playlist again...
+                    if let Ok(new_playlist) = downloader.media_playlist(id).await {
+                        info!("Successfully updated playlist");
+                        playlist = new_playlist;
+                    } else {
+                        warn!("Failed to re-download playlist... No longer downloading");
+                        return;
+                    }
+                }
             }
         }
     });
