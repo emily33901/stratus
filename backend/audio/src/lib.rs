@@ -3,6 +3,7 @@ mod mp3;
 
 use std::{
     collections::{HashMap, VecDeque},
+    error::Error,
     sync::{
         atomic::{AtomicU16, AtomicUsize},
         Arc,
@@ -269,7 +270,7 @@ async fn download_hls_segments(
                     match tx_chunk.send(chunk).await {
                         Ok(_) => {}
                         Err(err) => {
-                            warn!("rx died ({:?}) - Stopping download", err);
+                            warn!("rx died ({:?}) - Stopping download", err.source());
                             break;
                         }
                     }

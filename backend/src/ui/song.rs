@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use iced::{Button, Column, Element, Length, Row, Text};
+use iced::pure::{
+    button, row, text,
+    widget::{Button, Column, Row, Text},
+    Element,
+};
+use iced::Length;
 
 use crate::sc::{self, Id};
 
@@ -10,35 +15,43 @@ pub struct Song {
     song: sc::Song,
     pub user: Option<sc::User>,
     image_cache: Arc<ImageCache>,
-    play_button_state: iced::button::State,
 }
 
 impl Song {
-    pub fn view(&mut self) -> Element<Message> {
+    pub fn view(&self) -> Element<Message> {
         {
             if let Some(image) = self.image_cache.image_for_song(&self.song) {
-                Row::new().push(image.width(Length::Units(100)))
+                row().push(image.width(Length::Units(100)))
             } else {
-                Row::new()
+                row()
             }
             .push(
-                Row::new()
+                row()
                     .push(
                         Column::new()
-                            .push(Text::new(&self.song.title))
-                            .push(Text::new(
-                                self.user
-                                    .as_ref()
-                                    .map(|user| user.username.clone())
-                                    .unwrap_or_default(),
-                            ))
+                            .push(text(&self.song.title))
+                            .push(
+                                button(text(
+                                    self.user
+                                        .as_ref()
+                                        .map(|user| user.username.clone())
+                                        .unwrap_or_default(),
+                                ))
+                                .on_press(
+                                    self.user
+                                        .as_ref()
+                                        .map(|user| Message::UserClicked(user.clone()))
+                                        .or(Some(Message::none()))
+                                        .unwrap(),
+                                ),
+                            )
                             .spacing(20)
                             .width(Length::Shrink),
                     )
                     .width(Length::Fill)
                     .spacing(20)
                     .push(
-                        Button::new(&mut self.play_button_state, Text::new("Add to queue"))
+                        button(text("Add to queue"))
                             .on_press(Message::SongQueue(self.song.clone()))
                             .style(crate::ui::style::Theme::Dark),
                     ),
@@ -71,7 +84,6 @@ impl Song {
             song,
             user: None,
             image_cache,
-            play_button_state: iced::button::State::new(),
         }
     }
 }

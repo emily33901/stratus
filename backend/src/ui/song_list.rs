@@ -1,0 +1,3 @@
+struct SongList;
+
+impl SongList {}

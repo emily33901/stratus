@@ -2,7 +2,7 @@ mod sc;
 mod ui;
 
 use eyre::Result;
-use iced::Application;
+use iced::pure::Application;
 
 fn main() -> Result<()> {
     // console_subscriber::init();

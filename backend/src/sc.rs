@@ -206,7 +206,10 @@ pub mod api {
             .send()
             .await?;
 
-        let playlist: model::HlsPlaylist = response.json().await?;
+        let text = response.text().await?;
+
+        let playlist: model::HlsPlaylist = serde_json::from_str(&text)
+            .expect(&format!("Failed to get HLS Playlist (text was {}", &text));
 
         // now get the actual m3u8 from the response object
         let mut headers = header::HeaderMap::new();
@@ -284,9 +287,12 @@ pub mod api {
             struct Likes {
                 collection: Vec<Like>,
             }
+
+            info!("Loading likes");
+
             let endpoint = Endpoint {
                 endpoint: &format!("users/{}/track_likes", self.object.id),
-                params: Some(&[("limit", "100")]),
+                params: Some(&[("limit", "50")]),
                 ..Default::default()
             };
 
@@ -308,6 +314,34 @@ pub mod api {
                     .map(|x| x.track.object)
                     .collect(),
                 title: format!("Liked by {}", self.username),
+            })
+        }
+
+        pub async fn songs(&self) -> Result<model::Playlist> {
+            let endpoint = Endpoint {
+                endpoint: &format!("users/{}/tracks", self.object.id),
+                params: Some(&[("limit", "50")]),
+                ..Default::default()
+            };
+
+            #[derive(Deserialize)]
+            struct Songs {
+                collection: Vec<model::Song>,
+            }
+
+            let songs: Songs = object(&endpoint).await?;
+            let id = next_fake_id();
+            Ok(model::Playlist {
+                object: Object {
+                    id,
+                    kind: "songs".into(),
+                    uri: None,
+                    url: None,
+                },
+                artwork: self.avatar.clone(),
+                user: self.object.clone(),
+                songs: songs.collection.into_iter().map(|x| x.object).collect(),
+                title: format!("Tracks by {}", self.username),
             })
         }
     }

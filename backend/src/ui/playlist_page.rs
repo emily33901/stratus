@@ -1,7 +1,10 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use iced::{Button, Column, Command, Container, Element, Length, Row, Scrollable, Text, TextInput};
+// use iced::pure::widget::{Button, Column, Container, Scrollable, Text, TextInput};
+use iced::pure::Element;
+use iced::pure::{button, column, container, scrollable, text, text_input};
+use iced::{Command, Length};
 
 use super::{
     app::Message,
@@ -20,9 +23,6 @@ pub struct PlaylistPage {
     pub playlist: sc::Playlist,
     // Built UI models of those objects
     songs: Vec<SongHolder>,
-    scroll: iced::scrollable::State,
-    filter: iced::text_input::State,
-    queue_playlist: iced::button::State,
     pub filter_text: String,
 }
 
@@ -35,19 +35,16 @@ impl PlaylistPage {
         Self {
             playlist,
             songs,
-            scroll: Default::default(),
-            filter: Default::default(),
             filter_text: Default::default(),
-            queue_playlist: Default::default(),
         }
     }
 
-    pub fn view(&mut self) -> Element<Message> {
-        let mut column = Column::new().spacing(40);
+    pub fn view(&self) -> Element<Message> {
+        let mut column = column().spacing(40);
 
         column = column
             .push(
-                Text::new(format!(
+                text(format!(
                     "{} ({} tracks)",
                     self.playlist.title.clone(),
                     self.playlist.songs.len()
@@ -55,7 +52,7 @@ impl PlaylistPage {
                 .size(40),
             )
             .push(
-                Button::new(&mut self.queue_playlist, Text::new("Queue playlist"))
+                button(text("Queue playlist"))
                     .on_press(Message::QueuePlaylist)
                     .style(crate::ui::style::Theme::Dark),
             );
@@ -63,31 +60,26 @@ impl PlaylistPage {
         // column = column.push(Text::new(playlist.).size(20)));
         // Filter by the filter string
         column = column.push(
-            TextInput::new(
-                &mut self.filter,
+            text_input(
                 "Search...",
                 &self.filter_text,
                 Message::PlaylistFilterChange,
             )
             .style(crate::ui::style::Theme::Dark)
             .size(20)
-            .padding(10)
-            .max_width(100),
+            .padding(10),
         );
 
         for song in self
             .songs
-            .iter_mut()
+            .iter()
             .filter(|song| song.display)
-            .filter_map(|song| song.song.as_mut())
+            .filter_map(|song| song.song.as_ref())
         {
             column = column.push(song.view())
         }
 
-        Scrollable::new(&mut self.scroll)
-            .padding(40)
-            .push(Container::new(column).width(Length::Fill).center_x())
-            .into()
+        column.into()
     }
 
     pub fn filter_changed(&mut self, str: &str) -> Command<Message> {
@@ -136,13 +128,14 @@ impl PlaylistPage {
             }
         }
 
-        // Try and get the user aswell
         let object = song.user.clone();
-        async move {
-            user_cache.try_get(&object);
-            Message::None
-        }
-        .into()
+        Command::perform(
+            async move {
+                user_cache.try_get(&object);
+            },
+            Message::None,
+        )
+        // .into()
     }
 
     pub fn user_loaded(

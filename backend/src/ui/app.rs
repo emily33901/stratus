@@ -11,18 +11,21 @@ use async_trait::async_trait;
 
 use eyre::{eyre, Result};
 use iced::image::Handle;
-use iced::{self, executor, Application, Column, Command, Text};
+use iced::pure::{column, container, scrollable, text, Application, Element};
+use iced::{self, executor, Command};
 use log::{info, warn};
 
 use super::cache::{ImageCache, SongCache, UserCache};
 use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
+use super::user_page::UserPage;
 use crate::sc::api::model::Transcoding;
 use crate::sc::{self, Id, SoundCloud};
 
 enum Page {
     Main,
     Playlist(PlaylistPage),
+    User(UserPage),
 }
 
 impl Default for Page {
@@ -43,7 +46,6 @@ pub struct App {
     current_time: Arc<AtomicUsize>,
     total_time: f32,
     // queue: VecDeque<audio::TrackId>,
-    scroll: iced::scrollable::State,
     controls: ControlsElement,
 }
 
@@ -64,7 +66,6 @@ impl Default for App {
             player,
             current_time: Default::default(),
             total_time: Default::default(),
-            scroll: Default::default(),
             controls: ControlsElement::new(song_cache, cur_track_rx),
             // queue: Default::default(),
         };
@@ -75,7 +76,7 @@ impl Default for App {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    None,
+    None(()),
     Tick,
     PlaylistClicked(sc::Playlist),
     SongLoaded(sc::Song),
@@ -88,6 +89,15 @@ pub enum Message {
     QueueChanged(VecDeque<audio::SongId>),
     PlaylistFilterChange(String),
     QueuePlaylist,
+
+    // UI
+    UserClicked(sc::User),
+}
+
+impl Message {
+    pub(crate) fn none() -> Message {
+        Message::None(())
+    }
 }
 
 struct Downloader {
@@ -151,18 +161,21 @@ impl Application for App {
     fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
         (
             Self::default(),
-            async {
-                let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/emilydotgg"))
-                    .await
-                    .unwrap()
-                    .likes()
-                    .await
-                    .unwrap();
+            Command::perform(
+                async {
+                    let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/emilydotgg"))
+                        .await
+                        .unwrap()
+                        .likes()
+                        .await
+                        .unwrap();
 
-                SoundCloud::frame();
-                Message::PlaylistClicked(playlist)
-            }
-            .into(),
+                    SoundCloud::frame();
+
+                    playlist
+                },
+                |playlist| Message::PlaylistClicked(playlist),
+            ),
         )
     }
 
@@ -170,11 +183,7 @@ impl Application for App {
         "stratus".into()
     }
 
-    fn update(
-        &mut self,
-        message: Self::Message,
-        _clipboard: &mut iced::Clipboard,
-    ) -> Command<Self::Message> {
+    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         // match &message {
         //     Message::None | Message::Tick => (),
         //     message => info!("{:?}", message),
@@ -193,11 +202,12 @@ impl Application for App {
                     .for_each(drop);
 
                 Command::batch(playlist2.songs.into_iter().map(|song| {
-                    async move {
-                        song.preload().await;
-                        Message::None
-                    }
-                    .into()
+                    Command::perform(
+                        async move {
+                            song.preload().await;
+                        },
+                        Message::None,
+                    )
                 }))
             }
             Message::ImageLoaded((url, handle)) => {
@@ -210,37 +220,47 @@ impl Application for App {
             Message::SongQueue(song) => self.queue_song(&song),
             Message::Resume => {
                 let player = self.player.clone();
-                async move {
-                    let player = player.lock().await;
-                    player.resume().await.unwrap();
-                    Message::None
-                }
-                .into()
+                Command::perform(
+                    async move {
+                        let player = player.lock().await;
+                        player.resume().await.unwrap();
+                    },
+                    Message::None,
+                )
             }
             Message::Pause => {
                 let player = self.player.clone();
-                async move {
-                    let player = player.lock().await;
-                    player.pause().await.unwrap();
-                    Message::None
-                }
-                .into()
+                Command::perform(
+                    async move {
+                        let player = player.lock().await;
+                        player.pause().await.unwrap();
+                    },
+                    Message::None,
+                )
             }
             Message::Skip => {
                 let player = self.player.clone();
-                async move {
-                    let player = player.lock().await;
-                    player.skip().await.unwrap();
-                    Message::None
-                }
-                .into()
+                Command::perform(
+                    async move {
+                        let player = player.lock().await;
+                        player.skip().await.unwrap();
+                    },
+                    Message::None,
+                )
             }
             Message::QueueChanged(queue) => {
                 self.controls.queue = queue;
-                async { Message::None }.into()
+                Command::none()
             }
             Message::QueuePlaylist => self.queue_playlist(),
             Message::PlaylistFilterChange(string) => self.playlist_filter_changed(&string),
+            Message::UserClicked(user) => {
+                info!("User clicked");
+
+                self.page = Page::User(UserPage::new(user, &self.image_cache));
+
+                Command::none()
+            }
             _ => Command::none(),
         };
 
@@ -256,59 +276,66 @@ impl Application for App {
 
         // Queue loading images that need it
         let image_loads = Command::batch(self.image_cache.needs_loading().into_iter().map(|url| {
-            async {
-                info!("Loading image: {}", url);
+            let url2 = url.clone();
+            Command::perform(
+                async move {
+                    info!("Loading image: {}", url);
 
-                let bytes = backoff::future::retry(make_backoff(), || async {
-                    let response = reqwest::get(&url).await?;
-                    Ok(response.bytes().await.unwrap().to_vec())
-                })
-                .await
-                .unwrap();
-
-                Message::ImageLoaded((url, Handle::from_memory(bytes)))
-            }
+                    backoff::future::retry(make_backoff(), || async {
+                        let response = reqwest::get(&url).await?;
+                        Ok(response.bytes().await.unwrap().to_vec())
+                    })
+                    .await
+                    .unwrap()
+                },
+                move |bytes| Message::ImageLoaded((url2.clone(), Handle::from_memory(bytes))),
+            )
             .into()
         }));
 
         let song_loads =
             Command::batch(self.song_cache.needs_loading().into_iter().map(|object| {
-                async move {
-                    info!("Loading song: {}", object.id);
+                Command::perform(
+                    async move {
+                        info!("Loading song: {}", object.id);
 
-                    backoff::future::retry(make_backoff(), || async {
-                        let song = SoundCloud::song(Id::Id(object.id)).await?;
-                        Ok(Message::SongLoaded(song))
-                    })
-                    .await
-                    .unwrap()
-                }
-                .into()
+                        backoff::future::retry(make_backoff(), || async {
+                            let song = SoundCloud::song(Id::Id(object.id)).await?;
+                            Ok(song)
+                        })
+                        .await
+                        .unwrap()
+                    },
+                    Message::SongLoaded,
+                )
             }));
 
         let user_loads =
             Command::batch(self.user_cache.needs_loading().into_iter().map(|object| {
-                async move {
-                    info!("Loading user: {}", object.id);
+                Command::perform(
+                    async move {
+                        info!("Loading user: {}", object.id);
 
-                    backoff::future::retry(make_backoff(), || async {
-                        let user = SoundCloud::user(Id::Id(object.id)).await?;
-                        Ok(Message::UserLoaded(user))
-                    })
-                    .await
-                    .unwrap()
-                }
-                .into()
+                        backoff::future::retry(make_backoff(), || async {
+                            let user = SoundCloud::user(Id::Id(object.id)).await?;
+                            Ok(user)
+                        })
+                        .await
+                        .unwrap()
+                    },
+                    Message::UserLoaded,
+                )
             }));
 
         let current_time = self.current_time.clone();
         let player = self.player.clone();
-        let update_pos = async move {
-            current_time.store(player.lock().await.position(), Ordering::Release);
-            Message::None
-        }
-        .into();
 
+        let update_pos = Command::perform(
+            async move {
+                current_time.store(player.lock().await.position(), Ordering::Release);
+            },
+            Message::None,
+        );
         self.total_time = self.player.blocking_lock().total();
 
         Command::batch([msg_command, image_loads, song_loads, user_loads, update_pos])
@@ -323,37 +350,29 @@ impl Application for App {
         ])
     }
 
-    fn view(&mut self) -> iced::Element<Self::Message> {
-        use iced::Element;
-        Container::new(
-            Column::new()
-                .push::<Element<Message>>(
-                    Column::new()
-                        .push(match &mut self.page {
-                            Page::Main => Text::new("Main page").into(),
-                            Page::Playlist(playlist_page) => playlist_page.view(),
-                        })
-                        .height(iced::Length::FillPortion(1))
-                        .into(),
-                )
+    fn view(&self) -> Element<Self::Message> {
+        container(
+            column()
                 .push(
-                    Column::new()
-                        .push(
-                            {
-                                self.controls.view(
-                                    std::time::Duration::from_secs_f32(
-                                        self.current_time.load(Ordering::Relaxed) as f32
-                                            / 44100.0
-                                            / 2.0,
-                                    ),
-                                    std::time::Duration::from_secs_f32(self.total_time),
-                                )
-                            }
-                            .height(iced::Length::Units(40))
-                            .spacing(20),
-                        )
-                        .padding(20),
-                ),
+                    scrollable(
+                        container(match &self.page {
+                            Page::Main => text("Main page").into(),
+                            Page::Playlist(playlist_page) => playlist_page.view(),
+                            Page::User(user_page) => user_page.view(),
+                        })
+                        .padding(40),
+                    )
+                    .height(iced::Length::FillPortion(1)),
+                )
+                .push({
+                    container(self.controls.view(
+                        std::time::Duration::from_secs_f32(
+                            self.current_time.load(Ordering::Relaxed) as f32 / 44100.0 / 2.0,
+                        ),
+                        std::time::Duration::from_secs_f32(self.total_time),
+                    ))
+                    .height(iced::Length::Units(80))
+                }),
         )
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
@@ -391,15 +410,16 @@ impl App {
             if media.format.mime_type == "audio/mpeg" {
                 let player = self.player.clone();
                 let id = song.object.id;
-                return async move {
-                    tokio::task::spawn(async move {
-                        if let Ok(m3u8) = media.resolve().await {
-                            player.lock().await.queue(&m3u8, id).await.unwrap();
-                        }
-                    });
-                    Message::None
-                }
-                .into();
+                return Command::perform(
+                    async move {
+                        tokio::task::spawn(async move {
+                            if let Ok(m3u8) = media.resolve().await {
+                                player.lock().await.queue(&m3u8, id).await.unwrap();
+                            }
+                        });
+                    },
+                    Message::None,
+                );
             }
         }
 

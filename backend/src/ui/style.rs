@@ -1,4 +1,4 @@
-use iced::{
+use iced::pure::widget::{
     button, checkbox, container, pick_list, progress_bar, radio, rule, scrollable, slider,
     text_input,
 };
@@ -195,7 +195,7 @@ mod dark {
                 dot_color: ACTIVE,
                 border_width: 1.0,
                 border_color: ACTIVE,
-                // text_color: None,
+                text_color: None,
             }
         }
 
@@ -383,7 +383,7 @@ mod dark {
                 border_radius: 2.0,
                 border_width: 1.0,
                 border_color: ACTIVE,
-                // text_color: None,
+                text_color: None,
             }
         }
 

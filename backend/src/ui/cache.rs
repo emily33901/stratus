@@ -66,7 +66,11 @@ pub type ImageCache = Cache<String, Handle>;
 impl ImageCache {
     pub fn image_for_song(&self, song: &sc::Song) -> Option<Image> {
         let url = song.artwork.as_ref()?.replace("-large", "-t500x500");
-
+        let handle = self.try_get(&url)?;
+        Some(Image::new(handle.clone()))
+    }
+    pub fn image_for_user(&self, user: &sc::User) -> Option<Image> {
+        let url = user.avatar.as_ref()?.replace("-large", "-t500x500");
         let handle = self.try_get(&url)?;
         Some(Image::new(handle.clone()))
     }
