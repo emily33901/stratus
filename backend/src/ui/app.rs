@@ -78,9 +78,9 @@ impl Default for App {
 pub enum Message {
     None(()),
     Tick,
-    PlaylistClicked(sc::Playlist),
     SongLoaded(sc::Song),
     UserLoaded(sc::User),
+    PlaylistLoaded(sc::Playlist),
     ImageLoaded((String, Handle)),
     SongQueue(sc::Song),
     Resume,
@@ -92,6 +92,7 @@ pub enum Message {
 
     // UI
     UserClicked(sc::User),
+    PlaylistClicked(sc::Playlist),
 }
 
 impl Message {
@@ -190,6 +191,7 @@ impl Application for App {
         // }
 
         let msg_command = match message {
+            Message::None(_) | Message::Tick => Command::none(),
             Message::PlaylistClicked(playlist) => {
                 let playlist2 = playlist.clone();
 
@@ -257,11 +259,21 @@ impl Application for App {
             Message::UserClicked(user) => {
                 info!("User clicked");
 
-                self.page = Page::User(UserPage::new(user, &self.image_cache));
+                self.page = Page::User(UserPage::new(user.clone(), &self.image_cache));
 
+                Command::perform(
+                    async move { user.songs().await.unwrap() },
+                    Message::PlaylistLoaded,
+                )
+            }
+            Message::PlaylistLoaded(playlist) => {
+                match &mut self.page {
+                    Page::Main => todo!(),
+                    Page::Playlist(_) => todo!(),
+                    Page::User(page) => page.update_songs(playlist),
+                };
                 Command::none()
             }
-            _ => Command::none(),
         };
 
         use backoff::ExponentialBackoff;
@@ -388,10 +400,14 @@ impl App {
         info!("Song loaded: {}", song.title);
         self.song_cache.write(song.object.clone(), song.clone());
 
-        if let Page::Playlist(playlist_page) = &mut self.page {
-            playlist_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
-        } else {
-            Command::none()
+        match &mut self.page {
+            Page::Main => Command::none(),
+            Page::Playlist(playlist_page) => {
+                playlist_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
+            }
+            Page::User(user_page) => {
+                user_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
+            }
         }
     }
 

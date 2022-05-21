@@ -398,6 +398,30 @@ pub enum Id<'a> {
     Id(i64),
 }
 
+#[derive(Debug, PartialEq, Hash, Eq)]
+pub enum OwnedId {
+    Url(String),
+    Id(i64),
+}
+
+impl<'a> From<Id<'a>> for OwnedId {
+    fn from(id: Id<'a>) -> Self {
+        match id {
+            Id::Url(url) => Self::Url(url.into()),
+            Id::Id(id) => Self::Id(id),
+        }
+    }
+}
+
+impl<'a> From<OwnedId> for Id<'a> {
+    fn from(owned: OwnedId) -> Self {
+        match owned {
+            OwnedId::Url(url) => Self::Url(&url),
+            OwnedId::Id(id) => Self::Id(id),
+        }
+    }
+}
+
 pub struct SoundCloud {}
 
 impl SoundCloud {
