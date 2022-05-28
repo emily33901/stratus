@@ -1,10 +1,6 @@
 use std::sync::Arc;
 
-use iced::pure::{
-    button, row, text,
-    widget::{Column},
-    Element,
-};
+use iced::pure::{button, row, text, widget::Column, Element};
 use iced::Length;
 
 use crate::sc::{self};

@@ -196,6 +196,10 @@ async fn player_control(
 
                             // Reset sink
                             reset_sink().await;
+                            // If we got a finished signal then consume it
+                            finished_signal_rx.try_recv()
+                                .map(|_| info!("Consumed a finished signal"))
+                                .unwrap_or_else(|_| { info!("No finished signal to consume"); ()});
                             // Tell everyone that we are playing a new track
                             cur_song_tx.send(Some(queued_song)).unwrap();
 
@@ -290,6 +294,7 @@ async fn download_hls_segments(
                 }
             }
         }
+        // TODO(emily): Send some signal here that the playlist is done.
     });
 
     return rx_chunk;

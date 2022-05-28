@@ -1,12 +1,7 @@
-use std::sync::Arc;
-
-use iced::pure::{row, text, Element};
-
-use crate::sc;
-
 use super::{app::Message, cache::ImageCache, song_list::SongList};
-
-use iced::pure::{column};
+use crate::sc;
+use iced::pure::{column, row, text, Element};
+use std::sync::Arc;
 
 pub struct UserPage {
     user: sc::User,

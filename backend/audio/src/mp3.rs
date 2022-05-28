@@ -1,6 +1,7 @@
 use std::{sync::Arc, time};
 
 use eyre::Result;
+use log::info;
 use minimp3::{Decoder, Frame};
 use parking_lot::RwLock;
 use rodio::Source;
@@ -28,9 +29,9 @@ impl HlsDecoder {
 
         // Make sure that we have a frame ready to go
         let current_frame = decoder.lock().await.next_frame_future().await?;
-        let next_frame = Arc::new(RwLock::new(
-            decoder.lock().await.next_frame_future().await.ok(),
-        ));
+        let next_frame = decoder.lock().await.next_frame_future().await.ok();
+        assert!(next_frame.is_some());
+        let next_frame = Arc::new(RwLock::new(next_frame));
 
         Ok(HlsDecoder {
             decoder,
@@ -82,11 +83,16 @@ impl Iterator for HlsDecoder {
             self.elapsed += self.current_frame_offset;
             self.current_frame_offset = 0;
 
-            self.current_frame = if let Some(frame) = self.next_frame.write().take() {
-                frame
-            } else {
-                self.finished_signal.blocking_send(()).unwrap();
-                return None;
+            self.current_frame = {
+                if let Some(frame) = self.next_frame.write().take() {
+                    frame
+                } else {
+                    // TODO(emily): We need a different signal for this.
+                    // This could either be the end or it could just be that we failed to read the next chunk
+                    info!("No next frame. Sending finished signal");
+                    self.finished_signal.blocking_send(()).unwrap();
+                    return None;
+                }
             };
 
             let next_frame = self.next_frame.clone();

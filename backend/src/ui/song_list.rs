@@ -6,7 +6,6 @@ use iced::{
     Command,
 };
 
-
 use crate::sc;
 
 use super::{

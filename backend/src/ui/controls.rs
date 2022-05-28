@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, ops::RangeInclusive, sync::Arc, time};
 
 // use iced::pure::widget::{button, pick_list, slider, Button, Row, Slider, Text, Tooltip};
-use iced::pure::{Element};
+use iced::pure::Element;
 use tokio::sync::watch;
 
 use super::{app::Message, cache::SongCache};

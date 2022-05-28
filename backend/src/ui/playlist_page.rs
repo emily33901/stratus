@@ -1,15 +1,10 @@
-
-
-
 // use iced::pure::widget::{Button, Column, Container, Scrollable, Text, TextInput};
 use iced::pure::Element;
 use iced::pure::{button, column, text, text_input};
-use iced::{Command};
+use iced::Command;
 
+use super::app::Message;
 use super::song_list::SongList;
-use super::{
-    app::Message,
-};
 use crate::sc::{self, api::model};
 
 pub struct PlaylistPage {

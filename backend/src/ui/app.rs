@@ -1,6 +1,6 @@
 use audio::HlsPlayer;
 use futures::stream::BoxStream;
-use iced::{time};
+use iced::time;
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,7 +9,7 @@ use tokio::sync::{watch, Mutex};
 
 use async_trait::async_trait;
 
-use eyre::{eyre, Result};
+use eyre::eyre;
 use iced::image::Handle;
 use iced::pure::{column, container, scrollable, text, Application, Element};
 use iced::{self, executor, Command};
@@ -22,6 +22,7 @@ use super::user_page::UserPage;
 
 use crate::sc::{self, Id, SoundCloud};
 
+mod downloader;
 enum Page {
     Main,
     Playlist(PlaylistPage),
@@ -52,9 +53,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let song_cache = Arc::new(SongCache::default());
-        let player = Arc::new(Mutex::new(HlsPlayer::new(Arc::new(Downloader::new(
-            song_cache.clone(),
-        )))));
+        let player = Arc::new(Mutex::new(HlsPlayer::new(Arc::new(
+            downloader::Downloader::new(song_cache.clone()),
+        ))));
         let cur_track_rx = player.blocking_lock().cur_song();
 
         let zelf = Self {
@@ -101,112 +102,10 @@ impl Message {
     }
 }
 
-struct Downloader {
-    client: reqwest::Client,
-    song_cache: Arc<SongCache>,
-}
-
-impl Downloader {
-    fn new(song_cache: Arc<SongCache>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            song_cache,
-        }
-    }
-}
-
-#[async_trait]
-impl audio::Downloader for Downloader {
-    async fn download_chunk(&self, url: &str) -> Result<Vec<u8>> {
-        let response = self.client.get(url).send().await?;
-        // make sure that if the server returns an error (e.g. Forbidden)
-        // that we pass it back up to whoever called us
-        Ok(response.error_for_status()?.bytes().await?.to_vec())
-    }
-
-    async fn playlist(&self, id: audio::SongId) -> Result<String> {
-        // Try and get mpeg transcoding from song
-        let (title, transcodings) = self
-            .song_cache
-            .try_get(&sc::Object {
-                id,
-                kind: "track".into(),
-                ..Default::default()
-            })
-            .map(|song| (song.title.clone(), song.media.transcodings.clone()))
-            .ok_or(eyre!("No such song {} in song cache", id))?;
-
-        if let Some(transcoding) = transcodings
-            .iter()
-            .find(|t| t.format.mime_type == "audio/mpeg")
-        {
-            let result = transcoding.resolve().await;
-            Ok(result?)
-        } else {
-            warn!(
-                "Song {} missing mpeg transcoding (available transcodings were {:?})",
-                &title, &transcodings
-            );
-            Err(eyre!("No such mpeg transcoding for SongId {}", id))
-        }
-    }
-}
-
-impl Application for App {
-    type Executor = executor::Default;
-
-    type Message = Message;
-
-    type Flags = ();
-
-    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (
-            Self::default(),
-            Command::perform(
-                async {
-                    let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/emilydotgg"))
-                        .await
-                        .unwrap()
-                        .likes()
-                        .await
-                        .unwrap();
-
-                    SoundCloud::frame();
-
-                    playlist
-                },
-                |playlist| Message::PlaylistClicked(playlist),
-            ),
-        )
-    }
-
-    fn title(&self) -> String {
-        "stratus".into()
-    }
-
-    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
-        // match &message {
-        //     Message::None | Message::Tick => (),
-        //     message => info!("{:?}", message),
-        // }
-
-        let msg_command = match message {
+impl App {
+    fn handle_message(&mut self, message: Message) -> Command<Message> {
+        match message {
             Message::None(_) | Message::Tick => Command::none(),
-            Message::PlaylistClicked(playlist) => {
-                let playlist2 = playlist.clone();
-
-                self.page = Page::Playlist(PlaylistPage::new(playlist.clone()));
-
-                Command::batch(playlist2.songs.into_iter().map(|song| {
-                    let song_cache = self.song_cache.clone();
-                    Command::perform(
-                        async move {
-                            song_cache.try_get(&song);
-                        },
-                        Message::None,
-                    )
-                }))
-            }
             Message::ImageLoaded((url, handle)) => {
                 info!("Image loaded: {}", url);
                 self.image_cache.write(url, handle);
@@ -214,6 +113,7 @@ impl Application for App {
             }
             Message::SongLoaded(song) => self.song_loaded(&song),
             Message::UserLoaded(user) => self.user_loaded(&user),
+            Message::PlaylistLoaded(playlist) => self.playlist_loaded(playlist),
             Message::SongQueue(song) => self.queue_song(&song),
             Message::Resume => {
                 let player = self.player.clone();
@@ -261,16 +161,12 @@ impl Application for App {
                     Message::PlaylistLoaded,
                 )
             }
-            Message::PlaylistLoaded(playlist) => {
-                info!("Playlist loaded");
-                match &mut self.page {
-                    Page::Main => todo!(),
-                    Page::Playlist(_) => todo!(),
-                    Page::User(page) => page.update_songs(playlist.clone()),
-                };
+            Message::PlaylistClicked(playlist) => {
+                let playlist2 = playlist.clone();
 
-                // TODO(emily): C+P from above...
-                Command::batch(playlist.songs.into_iter().map(|song| {
+                self.page = Page::Playlist(PlaylistPage::new(playlist.clone()));
+
+                Command::batch(playlist2.songs.into_iter().map(|song| {
                     let song_cache = self.song_cache.clone();
                     Command::perform(
                         async move {
@@ -280,7 +176,67 @@ impl Application for App {
                     )
                 }))
             }
+        }
+    }
+
+    fn playlist_loaded(&mut self, playlist: sc::Playlist) -> Command<Message> {
+        info!("Playlist loaded");
+        match &mut self.page {
+            Page::Main => todo!(),
+            Page::Playlist(_) => todo!(),
+            Page::User(page) => page.update_songs(playlist.clone()),
         };
+        Command::batch(playlist.songs.into_iter().map(|song| {
+            let song_cache = self.song_cache.clone();
+            Command::perform(
+                async move {
+                    song_cache.try_get(&song);
+                },
+                Message::None,
+            )
+        }))
+    }
+}
+
+impl Application for App {
+    type Executor = executor::Default;
+
+    type Message = Message;
+
+    type Flags = ();
+
+    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
+        (
+            Self::default(),
+            Command::perform(
+                async {
+                    let playlist = SoundCloud::user(Id::Url("https://soundcloud.com/emilydotgg"))
+                        .await
+                        .unwrap()
+                        .likes()
+                        .await
+                        .unwrap();
+
+                    SoundCloud::frame();
+
+                    playlist
+                },
+                |playlist| Message::PlaylistClicked(playlist),
+            ),
+        )
+    }
+
+    fn title(&self) -> String {
+        "stratus".into()
+    }
+
+    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+        // match &message {
+        //     Message::None | Message::Tick => (),
+        //     message => info!("{:?}", message),
+        // }
+
+        let msg_command = self.handle_message(message);
 
         use backoff::ExponentialBackoff;
 
