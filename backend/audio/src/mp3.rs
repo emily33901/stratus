@@ -98,7 +98,10 @@ impl Iterator for HlsDecoder {
             let next_frame = self.next_frame.clone();
             let decoder = self.decoder.clone();
             self.runtime.spawn(async move {
-                let f = decoder.lock().await.next_frame_future().await.ok();
+                let f = {
+                    let mut decoder = decoder.lock().await;
+                    decoder.next_frame_future().await.ok()
+                };
                 *next_frame.write() = f;
             });
         }

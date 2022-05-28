@@ -1,7 +1,7 @@
 use super::super::cache::SongCache;
 use crate::sc;
 use async_trait::async_trait;
-use eyre::{self, Result};
+use eyre::{eyre, Result};
 use log::warn;
 use std::sync::Arc;
 
