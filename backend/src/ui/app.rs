@@ -7,9 +7,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
 
-use async_trait::async_trait;
-
-use eyre::eyre;
 use iced::image::Handle;
 use iced::pure::{column, container, scrollable, text, Application, Element};
 use iced::{self, executor, Command};
@@ -231,11 +228,6 @@ impl Application for App {
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
-        // match &message {
-        //     Message::None | Message::Tick => (),
-        //     message => info!("{:?}", message),
-        // }
-
         let msg_command = self.handle_message(message);
 
         use backoff::ExponentialBackoff;
@@ -400,7 +392,8 @@ impl App {
                     async move {
                         tokio::task::spawn(async move {
                             if let Ok(m3u8) = media.resolve().await {
-                                player.lock().await.queue(&m3u8, id).await.unwrap();
+                                let player = player.lock().await;
+                                player.queue(&m3u8, id).await.unwrap();
                             }
                         });
                     },

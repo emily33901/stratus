@@ -33,7 +33,7 @@ iced_style = "*"
 fuzzy-matcher = "*"
 backoff = { version = "0.3", features = ["tokio"] }
 ellipse = "0.2.0"
-# console-subscriber = "*"
+console-subscriber = "*"
 
 [profile.release]
 debug = true

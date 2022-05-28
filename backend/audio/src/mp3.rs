@@ -1,23 +1,19 @@
-use std::{sync::Arc, time};
+use std::{error::Error, time};
 
 use eyre::Result;
 use log::info;
 use minimp3::{Decoder, Frame};
-use parking_lot::RwLock;
 use rodio::Source;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 
 use crate::hls_source::HlsReader;
 
 pub struct HlsDecoder {
-    decoder: Arc<Mutex<Decoder<HlsReader>>>,
     current_frame: Frame,
-    next_frame: Arc<RwLock<Option<Frame>>>,
+    next_frame_rx: mpsc::Receiver<Frame>,
     current_frame_offset: usize,
     elapsed: usize,
     finished_signal: tokio::sync::mpsc::Sender<()>,
-    runtime: tokio::runtime::Handle,
 }
 
 impl HlsDecoder {
@@ -25,22 +21,36 @@ impl HlsDecoder {
         chunk_rx: mpsc::Receiver<Vec<u8>>,
         finished_signal: &tokio::sync::mpsc::Sender<()>,
     ) -> Result<Self> {
-        let decoder = Arc::new(Mutex::new(Decoder::new(HlsReader::new(chunk_rx))));
+        let (next_frame_tx, mut next_frame_rx) = mpsc::channel(30);
+
+        tokio::spawn(async move {
+            let mut decoder = Decoder::new(HlsReader::new(chunk_rx));
+            loop {
+                match { decoder.next_frame_future().await } {
+                    Ok(frame) => {
+                        if let Err(err) = next_frame_tx.send(frame).await {
+                            info!("next_frame_rx gone. {:?}", err.source());
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        info!("Error getting next frame: {:?}", err);
+                        // TODO(emily): Probably want to be doing something better here
+                        break;
+                    }
+                }
+            }
+        });
 
         // Make sure that we have a frame ready to go
-        let current_frame = decoder.lock().await.next_frame_future().await?;
-        let next_frame = decoder.lock().await.next_frame_future().await.ok();
-        assert!(next_frame.is_some());
-        let next_frame = Arc::new(RwLock::new(next_frame));
+        let current_frame = next_frame_rx.recv().await.unwrap();
 
         Ok(HlsDecoder {
-            decoder,
             current_frame,
-            next_frame,
             current_frame_offset: 0,
             elapsed: 0,
             finished_signal: finished_signal.clone(),
-            runtime: tokio::runtime::Handle::current(),
+            next_frame_rx,
         })
     }
 
@@ -84,7 +94,7 @@ impl Iterator for HlsDecoder {
             self.current_frame_offset = 0;
 
             self.current_frame = {
-                if let Some(frame) = self.next_frame.write().take() {
+                if let Some(frame) = self.next_frame_rx.try_recv().ok() {
                     frame
                 } else {
                     // TODO(emily): We need a different signal for this.
@@ -94,16 +104,6 @@ impl Iterator for HlsDecoder {
                     return None;
                 }
             };
-
-            let next_frame = self.next_frame.clone();
-            let decoder = self.decoder.clone();
-            self.runtime.spawn(async move {
-                let f = {
-                    let mut decoder = decoder.lock().await;
-                    decoder.next_frame_future().await.ok()
-                };
-                *next_frame.write() = f;
-            });
         }
 
         let v = self.current_frame.data[self.current_frame_offset];
