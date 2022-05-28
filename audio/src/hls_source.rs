@@ -19,41 +19,39 @@ impl HlsReader {
     }
 }
 
+const STORE_LOW_MARK: usize = 10000;
+
 impl AsyncRead for HlsReader {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<io::Result<()>> {
-        {
-            // See if we have anything in the store to hand over
-            if self.store.len() > 0 {
-                // We have some existing data that we need to flush out
-                let len = self.store.len().min(buf.remaining());
-                buf.put_slice(&self.store[..len]);
-                self.store.drain(..len);
+        if self.store.len() < STORE_LOW_MARK {
+            // Try and fill up the store
+            let pr = self.rx.poll_recv(cx);
+            match pr {
+                Poll::Ready(Some(chunk)) => self.store.extend(&chunk),
+                Poll::Ready(None) => {
+                    // No more data for the store...
+                    // Hand over as much as we can
+                    let len = self.store.len().min(buf.remaining());
+                    buf.put_slice(&self.store[..len]);
+                    self.store.drain(..len);
+                    return Poll::Ready(Ok(()));
+                }
+                // Return pending if we are pending...
+                Poll::Pending => return Poll::Pending,
             }
         }
 
-        if buf.remaining() == 0 {
-            // Early out as the buffer is full
-            info!("Early out r:{} l:{}", buf.capacity(), self.store.len());
-            return Poll::Ready(Ok(()));
+        // See if we have anything in the store to hand over
+        if self.store.len() > 0 {
+            // We have some existing data that we need to flush out
+            let len = self.store.len().min(buf.remaining());
+            buf.put_slice(&self.store[..len]);
+            self.store.drain(..len);
         }
-
-        let pr = self.rx.poll_recv(cx);
-        match pr {
-            Poll::Ready(Some(chunk)) => {
-                // Figure out what len we can put into the buffer
-                let len = buf.remaining().min(chunk.len());
-                info!("l:{} r:{}", chunk.len(), buf.remaining());
-                buf.put_slice(&chunk[..len]);
-                // Put the rest into the store for next time
-                self.store.extend(&chunk[len..]);
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(None) => Poll::Ready(Ok(())),
-            Poll::Pending => Poll::Pending,
-        }
+        Poll::Ready(Ok(()))
     }
 }

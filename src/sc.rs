@@ -26,7 +26,7 @@ pub mod api {
             pub uri: Option<String>,
         }
 
-        #[derive(Debug, Serialize, Clone, Default)]
+        #[derive(Debug, Serialize, Clone, Default, Eq)]
         pub struct Object {
             pub id: Id,
             pub kind: String,
@@ -40,8 +40,6 @@ pub mod api {
                 self.id == other.id
             }
         }
-
-        impl Eq for Object {}
 
         impl std::hash::Hash for Object {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -292,7 +290,7 @@ pub mod api {
 
             let endpoint = Endpoint {
                 endpoint: &format!("users/{}/track_likes", self.object.id),
-                params: Some(&[("limit", "50")]),
+                params: Some(&[("limit", "10")]),
                 ..Default::default()
             };
 

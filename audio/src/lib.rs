@@ -269,8 +269,8 @@ async fn download_hls_segments(
             match downloader.download_chunk(&playlist.segments[i].uri).await {
                 Ok(chunk) => {
                     // We successfully got the ith chunk, lets keep going
-                    i += 1;
                     info!("downloaded {i}");
+                    i += 1;
 
                     match tx_chunk.send(chunk).await {
                         Ok(_) => {}
