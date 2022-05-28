@@ -11,7 +11,7 @@ use iced::pure::{column, image};
 pub struct UserPage {
     user: sc::User,
     image_cache: Arc<ImageCache>,
-    songs: Option<SongList>,
+    pub song_list: Option<SongList>,
 }
 
 impl UserPage {
@@ -19,7 +19,7 @@ impl UserPage {
         Self {
             user,
             image_cache: image_cache.clone(),
-            songs: None,
+            song_list: None,
         }
     }
 
@@ -39,7 +39,7 @@ impl UserPage {
                 .push(text(format!("{}", self.user.username))),
         );
 
-        if let Some(page) = &self.songs {
+        if let Some(page) = &self.song_list {
             column = column.push(page.view());
         }
 
@@ -47,6 +47,6 @@ impl UserPage {
     }
 
     pub fn update_songs(&mut self, songs: sc::Playlist) {
-        self.songs = Some(SongList::new(songs))
+        self.song_list = Some(SongList::new(songs))
     }
 }

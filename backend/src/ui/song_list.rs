@@ -5,6 +5,7 @@ use iced::{
     pure::{column, Element, Widget},
     Command,
 };
+use log::info;
 
 use crate::sc;
 
@@ -15,29 +16,31 @@ use super::{
 };
 
 #[derive(Default)]
-struct SongHolder {
+pub struct SongHolder {
     song: Option<Song>,
     display: bool,
 }
 
 pub struct SongList {
-    songs: HashMap<sc::OwnedId, SongHolder>,
+    song_list: HashMap<sc::OwnedId, SongHolder>,
     playlist: sc::Playlist,
 }
 
 impl SongList {
+    // TODO(emily): Needs to return Command aswell
+    // or the message match in App needs to load the songs of the playlist
     pub fn new(playlist: sc::Playlist) -> Self {
         Self {
-            songs: Default::default(),
+            song_list: Default::default(),
             playlist,
         }
     }
 
     pub fn view(&self) -> Element<Message> {
-        let column = column();
+        let mut column = column();
 
         for song in self
-            .songs
+            .song_list
             .values()
             .filter(|song| song.display)
             .filter_map(|song| song.song.as_ref())
@@ -45,7 +48,7 @@ impl SongList {
             column = column.push(song.view())
         }
 
-        column.into()
+        column.spacing(20).into()
     }
 
     pub fn update_filter(&mut self, str: &str) {
@@ -53,12 +56,12 @@ impl SongList {
 
         if str.len() < 2 {
             let _ = self
-                .songs
+                .song_list
                 .values_mut()
                 .map(|x| x.display = true)
                 .collect::<Vec<_>>();
         } else {
-            for song in self.songs.values_mut() {
+            for song in self.song_list.values_mut() {
                 song.display = song
                     .song
                     .as_ref()
@@ -77,17 +80,19 @@ impl SongList {
     pub fn song_loaded(
         &mut self,
         song: &sc::Song,
-        image_cache: Arc<ImageCache>,
-        user_cache: Arc<UserCache>,
+        image_cache: &Arc<ImageCache>,
+        user_cache: &Arc<UserCache>,
     ) -> Command<Message> {
-        if let Some(mut holder) = self.songs.get_mut(&sc::OwnedId::Id(song.object.id)) {
-            *holder = SongHolder {
+        self.song_list.insert(
+            sc::OwnedId::Id(song.object.id),
+            SongHolder {
                 song: Some(Song::new(song.clone(), image_cache.clone())),
                 display: true,
-            };
-        }
+            },
+        );
 
         let object = song.user.clone();
+        let user_cache = user_cache.clone();
         Command::perform(
             async move {
                 user_cache.try_get(&object);
@@ -99,10 +104,10 @@ impl SongList {
     pub fn user_loaded(
         &mut self,
         user: &sc::User,
-        image_cache: Arc<ImageCache>,
+        image_cache: &Arc<ImageCache>,
     ) -> Command<Message> {
         for song in self
-            .songs
+            .song_list
             .values_mut()
             .filter_map(|holder| holder.song.as_mut())
         {
@@ -112,5 +117,16 @@ impl SongList {
         }
 
         Command::none()
+    }
+
+    pub fn models(&self) -> impl Iterator<Item = &'_ Song> {
+        self.song_list.values().filter_map(|h| h.song.as_ref())
+    }
+
+    pub fn playlist(&self) -> &sc::Playlist {
+        &self.playlist
+    }
+    pub fn title(&self) -> &str {
+        &self.playlist.title
     }
 }

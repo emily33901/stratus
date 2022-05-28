@@ -413,11 +413,11 @@ impl<'a> From<Id<'a>> for OwnedId {
     }
 }
 
-impl<'a> From<OwnedId> for Id<'a> {
-    fn from(owned: OwnedId) -> Self {
+impl<'a> From<&'a OwnedId> for Id<'a> {
+    fn from(owned: &'a OwnedId) -> Self {
         match owned {
             OwnedId::Url(url) => Self::Url(&url),
-            OwnedId::Id(id) => Self::Id(id),
+            OwnedId::Id(id) => Self::Id(*id),
         }
     }
 }

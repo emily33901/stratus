@@ -42,13 +42,7 @@ fn main() -> Result<()> {
             println!("{:#?}", song);
         }
     }
-
-    let font = std::fs::read(
-        r"C:\Users\josh\AppData\Local\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf",
-    )
-    .unwrap();
     let options: iced::Settings<()> = iced::Settings {
-        default_font: Some(unsafe { std::mem::transmute(font.as_slice()) }),
         ..Default::default()
     };
 

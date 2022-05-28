@@ -240,6 +240,7 @@ async fn player_control(
                 }
             }
             _ = finished_signal_rx.recv() => {
+                info!("Finished signal");
                 loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
             }
         }

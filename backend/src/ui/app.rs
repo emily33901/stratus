@@ -197,16 +197,11 @@ impl Application for App {
 
                 self.page = Page::Playlist(PlaylistPage::new(playlist.clone()));
 
-                playlist
-                    .songs
-                    .iter()
-                    .map(|o| self.song_cache.try_get(o))
-                    .for_each(drop);
-
                 Command::batch(playlist2.songs.into_iter().map(|song| {
+                    let song_cache = self.song_cache.clone();
                     Command::perform(
                         async move {
-                            song.preload().await;
+                            song_cache.try_get(&song);
                         },
                         Message::None,
                     )
@@ -267,12 +262,23 @@ impl Application for App {
                 )
             }
             Message::PlaylistLoaded(playlist) => {
+                info!("Playlist loaded");
                 match &mut self.page {
                     Page::Main => todo!(),
                     Page::Playlist(_) => todo!(),
-                    Page::User(page) => page.update_songs(playlist),
+                    Page::User(page) => page.update_songs(playlist.clone()),
                 };
-                Command::none()
+
+                // TODO(emily): C+P from above...
+                Command::batch(playlist.songs.into_iter().map(|song| {
+                    let song_cache = self.song_cache.clone();
+                    Command::perform(
+                        async move {
+                            song_cache.try_get(&song);
+                        },
+                        Message::None,
+                    )
+                }))
             }
         };
 
@@ -403,21 +409,29 @@ impl App {
         match &mut self.page {
             Page::Main => Command::none(),
             Page::Playlist(playlist_page) => {
-                playlist_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
+                playlist_page
+                    .song_list
+                    .song_loaded(song, &self.image_cache, &self.user_cache)
             }
-            Page::User(user_page) => {
-                user_page.song_loaded(song, self.image_cache.clone(), self.user_cache.clone())
-            }
+            Page::User(user_page) => user_page
+                .song_list
+                .as_mut()
+                .map(|list| list.song_loaded(song, &self.image_cache, &self.user_cache))
+                .unwrap_or(Command::none()),
         }
     }
 
     fn user_loaded(&mut self, user: &sc::User) -> iced::Command<Message> {
         info!("User loaded: {}", user.username);
         self.user_cache.write(user.object.clone(), user.clone());
-        if let Page::Playlist(page) = &mut self.page {
-            page.user_loaded(user, self.image_cache.clone())
-        } else {
-            Command::none()
+        match &mut self.page {
+            Page::Playlist(page) => page.song_list.user_loaded(user, &self.image_cache),
+            Page::User(page) => page
+                .song_list
+                .as_mut()
+                .map(|list| list.user_loaded(user, &self.image_cache))
+                .unwrap_or(Command::none()),
+            _ => Command::none(),
         }
     }
 
