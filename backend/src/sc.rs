@@ -4,7 +4,7 @@ use eyre::Result;
 pub mod api {
     use image::ImageFormat;
     use log::{info, warn};
-    use parking_lot::Mutex;
+    
     use serde::Deserialize;
 
     pub mod model {

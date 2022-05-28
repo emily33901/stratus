@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, ops::RangeInclusive, sync::Arc, time};
 
 // use iced::pure::widget::{button, pick_list, slider, Button, Row, Slider, Text, Tooltip};
-use iced::pure::{widget::Row, Element};
+use iced::pure::{Element};
 use tokio::sync::watch;
 
 use super::{app::Message, cache::SongCache};
@@ -54,7 +54,7 @@ impl ControlsElement {
             })
             .map(|x| x.title.as_str().truncate_ellipse(30).into());
 
-        let queue = iced::pure::container(iced::pure::pick_list(options, selected, |x| {
+        let queue = iced::pure::container(iced::pure::pick_list(options, selected, |_x| {
             Message::none()
         }))
         .style(crate::ui::style::Theme::Dark);

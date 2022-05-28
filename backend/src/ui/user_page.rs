@@ -4,9 +4,9 @@ use iced::pure::{row, text, Element};
 
 use crate::sc;
 
-use super::{app::Message, cache::ImageCache, playlist_page::PlaylistPage, song_list::SongList};
+use super::{app::Message, cache::ImageCache, song_list::SongList};
 
-use iced::pure::{column, image};
+use iced::pure::{column};
 
 pub struct UserPage {
     user: sc::User,

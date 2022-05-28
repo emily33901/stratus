@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use iced::{
-    pure::{column, Element, Widget},
+    pure::{column, Element},
     Command,
 };
-use log::info;
+
 
 use crate::sc;
 
@@ -104,7 +104,7 @@ impl SongList {
     pub fn user_loaded(
         &mut self,
         user: &sc::User,
-        image_cache: &Arc<ImageCache>,
+        _image_cache: &Arc<ImageCache>,
     ) -> Command<Message> {
         for song in self
             .song_list

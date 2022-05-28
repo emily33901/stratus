@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use iced::pure::{
     button, row, text,
-    widget::{Button, Column, Row, Text},
+    widget::{Column},
     Element,
 };
 use iced::Length;
 
-use crate::sc::{self, Id};
+use crate::sc::{self};
 
 use super::{app::Message, cache::ImageCache};
 

@@ -1,6 +1,6 @@
 use audio::HlsPlayer;
 use futures::stream::BoxStream;
-use iced::{time, Container};
+use iced::{time};
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,7 +19,7 @@ use super::cache::{ImageCache, SongCache, UserCache};
 use super::controls::ControlsElement;
 use super::playlist_page::PlaylistPage;
 use super::user_page::UserPage;
-use crate::sc::api::model::Transcoding;
+
 use crate::sc::{self, Id, SoundCloud};
 
 enum Page {
@@ -57,7 +57,7 @@ impl Default for App {
         )))));
         let cur_track_rx = player.blocking_lock().cur_song();
 
-        let mut zelf = Self {
+        let zelf = Self {
             page: Default::default(),
             playlist: Default::default(),
             image_cache: Default::default(),

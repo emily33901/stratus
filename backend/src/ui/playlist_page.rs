@@ -1,16 +1,14 @@
-use std::{collections::VecDeque, sync::Arc};
 
-use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
+
+
 // use iced::pure::widget::{Button, Column, Container, Scrollable, Text, TextInput};
 use iced::pure::Element;
-use iced::pure::{button, column, container, scrollable, text, text_input};
-use iced::{Command, Length};
+use iced::pure::{button, column, text, text_input};
+use iced::{Command};
 
 use super::song_list::SongList;
 use super::{
     app::Message,
-    cache::{ImageCache, UserCache},
-    song::Song,
 };
 use crate::sc::{self, api::model};
 
