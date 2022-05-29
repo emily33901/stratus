@@ -78,7 +78,7 @@ pub enum Message {
     None(()),
     Tick,
     CacheLoads,
-    PlayerTime(usize),
+    PlayerTime((usize, f32)),
 
     SongLoaded(sc::Song),
     UserLoaded(sc::User),
@@ -207,8 +207,9 @@ impl Application for App {
 
                 return Command::batch([image_loads, song_loads, user_loads]);
             }
-            Message::PlayerTime(time) => {
+            Message::PlayerTime((time, total)) => {
                 self.player_time = *time as f32 / 44100.0 / 2.0;
+                self.total_time = total.clone();
                 return Command::none();
             }
             _ => {}

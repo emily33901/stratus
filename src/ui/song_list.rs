@@ -39,8 +39,6 @@ pub struct SongList {
 }
 
 impl SongList {
-    // TODO(emily): Needs to return Command aswell
-    // or the message match in App needs to load the songs of the playlist
     pub fn new(playlist: sc::Playlist) -> Self {
         Self {
             song_list: Default::default(),
@@ -68,7 +66,6 @@ impl SongList {
 
         let str = str.to_owned();
 
-        info!("blocking");
         let song_list: HashMap<sc::OwnedId, (Option<String>, Option<String>)> = self
             .song_list
             .iter()
@@ -84,7 +81,6 @@ impl SongList {
                 )
             })
             .collect();
-        info!("Not blocking");
 
         if str.len() < 2 {
             Command::perform(
@@ -180,14 +176,11 @@ impl SongList {
         &mut self,
         computed: &HashMap<sc::OwnedId, Display>,
     ) -> Command<Message> {
-        info!("updating display");
         for (k, v) in computed {
             self.song_list
                 .get_mut(k)
                 .map(|holder| holder.display = v.clone());
         }
-
-        info!("done updating display");
 
         Command::none()
     }

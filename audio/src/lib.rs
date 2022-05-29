@@ -49,8 +49,7 @@ enum PlayerControl {
 
 pub struct HlsPlayer {
     control: mpsc::Sender<PlayerControl>,
-    pos_rx: watch::Receiver<usize>,
-    total: Arc<parking_lot::Mutex<f32>>,
+    pos_rx: watch::Receiver<(usize, f32)>,
     cur_song: watch::Receiver<Option<SongId>>,
     queued_song: watch::Receiver<VecDeque<SongId>>,
 }
@@ -60,7 +59,7 @@ impl HlsPlayer {
         let (control_tx, control_rx) = mpsc::channel(10);
         let loop_control_tx = control_tx.clone();
 
-        let (pos_tx, pos_rx) = watch::channel(0);
+        let (pos_tx, pos_rx) = watch::channel((0, 0.0));
 
         let total: Arc<parking_lot::Mutex<f32>> = Default::default();
         let loop_total = total.clone();
@@ -87,7 +86,6 @@ impl HlsPlayer {
         });
 
         Self {
-            total,
             control: control_tx,
             cur_song: cur_song_rx,
             queued_song: queued_song_rx,
@@ -123,16 +121,8 @@ impl HlsPlayer {
         Ok(self.control.send(PlayerControl::SkipOne).await?)
     }
 
-    pub fn position(&self) -> usize {
-        *self.pos_rx.borrow()
-    }
-
-    pub fn pos_rx(&self) -> watch::Receiver<usize> {
+    pub fn pos_rx(&self) -> watch::Receiver<(usize, f32)> {
         self.pos_rx.clone()
-    }
-
-    pub fn total(&self) -> f32 {
-        *self.total.lock()
     }
 
     pub fn queued_watch(&self) -> watch::Receiver<VecDeque<SongId>> {
@@ -147,7 +137,7 @@ impl HlsPlayer {
 async fn player_control(
     mut control_rx: mpsc::Receiver<PlayerControl>,
     downloader: Arc<dyn Downloader>,
-    pos_tx: watch::Sender<usize>,
+    pos_tx: watch::Sender<(usize, f32)>,
     total: Arc<parking_lot::Mutex<f32>>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
     cur_song_tx: watch::Sender<Option<SongId>>,
@@ -200,11 +190,7 @@ async fn player_control(
                             let playlist = downloader.media_playlist(queued_song).await.unwrap();
 
                             // Calculate the total length of the track
-                            *total.lock() = playlist
-                                .segments
-                                .iter()
-                                .map(|x| x.duration)
-                                .sum::<f32>();
+                            let total = playlist.segments.iter().map(|x| x.duration).sum::<f32>();
 
                             // Reset sink
                             reset_sink().await;
@@ -224,7 +210,7 @@ async fn player_control(
                                     let position_tx = position_tx.clone();
                                     let periodic =
                                         decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                            position_tx.try_send(decoder.samples()).unwrap();
+                                            position_tx.try_send((decoder.samples(), total.clone())).unwrap();
                                         });
                                     let sink = sink.lock().await;
                                     sink.append(periodic);
