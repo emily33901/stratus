@@ -59,9 +59,7 @@ impl PlaylistPage {
     pub fn filter_changed(&mut self, str: &str) -> Command<Message> {
         self.filter_text = str.to_string();
 
-        self.song_list.update_filter(str);
-
-        Command::none()
+        self.song_list.update_filter(str)
     }
 
     pub fn songs(&self) -> impl Iterator<Item = &'_ model::Song> + '_ {

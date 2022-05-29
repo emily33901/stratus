@@ -396,7 +396,7 @@ pub enum Id<'a> {
     Id(i64),
 }
 
-#[derive(Debug, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum OwnedId {
     Url(String),
     Id(i64),

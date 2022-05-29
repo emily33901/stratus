@@ -69,8 +69,8 @@ impl Song {
         &self.song
     }
 
-    pub fn username(&self) -> Option<&String> {
-        self.user.as_ref().map(|user| &user.username)
+    pub fn username(&self) -> Option<&str> {
+        self.user.as_ref().map(|user| user.username.as_ref())
     }
 }
 
