@@ -49,7 +49,7 @@ enum PlayerControl {
 
 pub struct HlsPlayer {
     control: mpsc::Sender<PlayerControl>,
-    pos: Arc<AtomicUsize>,
+    pos_rx: watch::Receiver<usize>,
     total: Arc<parking_lot::Mutex<f32>>,
     cur_song: watch::Receiver<Option<SongId>>,
     queued_song: watch::Receiver<VecDeque<SongId>>,
@@ -60,8 +60,7 @@ impl HlsPlayer {
         let (control_tx, control_rx) = mpsc::channel(10);
         let loop_control_tx = control_tx.clone();
 
-        let pos = Arc::new(AtomicUsize::new(0));
-        let loop_pos = pos.clone();
+        let (pos_tx, pos_rx) = watch::channel(0);
 
         let total: Arc<parking_lot::Mutex<f32>> = Default::default();
         let loop_total = total.clone();
@@ -78,7 +77,7 @@ impl HlsPlayer {
                 .block_on(player_control(
                     control_rx,
                     downloader,
-                    loop_pos,
+                    pos_tx,
                     loop_total,
                     loop_control_tx,
                     cur_song_tx,
@@ -88,11 +87,11 @@ impl HlsPlayer {
         });
 
         Self {
-            pos,
             total,
             control: control_tx,
             cur_song: cur_song_rx,
             queued_song: queued_song_rx,
+            pos_rx,
         }
     }
 
@@ -125,7 +124,11 @@ impl HlsPlayer {
     }
 
     pub fn position(&self) -> usize {
-        self.pos.load(std::sync::atomic::Ordering::Relaxed)
+        *self.pos_rx.borrow()
+    }
+
+    pub fn pos_rx(&self) -> watch::Receiver<usize> {
+        self.pos_rx.clone()
     }
 
     pub fn total(&self) -> f32 {
@@ -144,7 +147,7 @@ impl HlsPlayer {
 async fn player_control(
     mut control_rx: mpsc::Receiver<PlayerControl>,
     downloader: Arc<dyn Downloader>,
-    pos: Arc<AtomicUsize>,
+    pos_tx: watch::Sender<usize>,
     total: Arc<parking_lot::Mutex<f32>>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
     cur_song_tx: watch::Sender<Option<SongId>>,
@@ -164,9 +167,18 @@ async fn player_control(
         *handle.lock().await = new_handle;
     };
 
-    // TODO(emily): Queue should probably just be a shared bit of memory so that it doesn't
-    // have to be copied around everwhere
     let mut queue = VecDeque::<SongId>::new();
+
+    // Down below whilst we never have multiple senders for position, the compiler doesnt know that
+    // so here we just take whatever positions come from this mpsc and send them down the single watch
+    // (which cant be cloned).
+    let (position_tx, mut position_rx) = mpsc::channel(1);
+    tokio::spawn(async move {
+        while let Some(position) = position_rx.recv().await {
+            // TODO(emily): Don't unwrap here
+            pos_tx.send(position).unwrap();
+        }
+    });
 
     let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
 
@@ -209,10 +221,10 @@ async fn player_control(
 
                             match HlsDecoder::new(chunk_rx, &finished_signal_tx).await {
                                 Ok(decoder) => {
-                                    let pos = pos.clone();
+                                    let position_tx = position_tx.clone();
                                     let periodic =
                                         decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                            pos.store(decoder.samples(), std::sync::atomic::Ordering::Relaxed);
+                                            position_tx.try_send(decoder.samples()).unwrap();
                                         });
                                     let sink = sink.lock().await;
                                     sink.append(periodic);

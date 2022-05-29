@@ -1,5 +1,5 @@
 [package]
-name = "backend"
+name = "stratus"
 version = "0.1.0"
 authors = ["Emily Hudson <emily33901@gmail.com>"]
 edition = "2021"
@@ -19,7 +19,7 @@ scopeguard = "1.1"
 lazy_static = "1.4"
 derive_more = "0.99"
 futures = "0.3"
-iced = { version = "0.4", features = ["tokio", "image", "debug", "pure"] }
+iced = { version = "0.4", features = ["tokio", "image", "pure"] }
 log = "0.4"
 fern = "0.5"
 image = "0.23.14"
