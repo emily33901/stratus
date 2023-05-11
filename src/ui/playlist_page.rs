@@ -1,11 +1,14 @@
+use std::sync::Arc;
+
 // use iced::pure::widget::{Button, Column, Container, Scrollable, Text, TextInput};
-use iced::pure::Element;
-use iced::pure::{button, column, text, text_input};
+use iced::widget;
 use iced::Command;
+use iced::Element;
+
+use crate::model;
 
 use super::app::Message;
 use super::song_list::SongList;
-use crate::sc::{self, api::model};
 
 pub struct PlaylistPage {
     pub song_list: SongList,
@@ -13,7 +16,7 @@ pub struct PlaylistPage {
 }
 
 impl PlaylistPage {
-    pub fn new(playlist: sc::Playlist) -> Self {
+    pub fn new(playlist: Arc<model::Playlist>) -> Self {
         Self {
             song_list: SongList::new(playlist),
             filter_text: Default::default(),
@@ -21,34 +24,26 @@ impl PlaylistPage {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let mut column = column().spacing(40);
+        let mut column = widget::column!().spacing(40);
 
         column = column
             .push(
-                text(format!(
+                widget::text(format!(
                     "{} ({} tracks)",
                     self.song_list.title(),
                     self.song_list.playlist().songs.len()
                 ))
                 .size(40),
             )
-            .push(
-                button(text("Queue playlist"))
-                    .on_press(Message::QueuePlaylist)
-                    .style(crate::ui::style::Theme::Dark),
-            );
+            .push(widget::button(widget::text("Queue playlist")).on_press(Message::QueuePlaylist));
 
         // column = column.push(Text::new(playlist.).size(20)));
         // Filter by the filter string
         column = column.push(
-            text_input(
-                "Search...",
-                &self.filter_text,
-                Message::PlaylistFilterChange,
-            )
-            .style(crate::ui::style::Theme::Dark)
-            .size(20)
-            .padding(10),
+            widget::text_input("Search...", &self.filter_text)
+                .size(20)
+                .on_input(Message::PlaylistFilterChange)
+                .padding(10),
         );
 
         column = column.push(self.song_list.view());
@@ -62,7 +57,7 @@ impl PlaylistPage {
         self.song_list.update_filter(str)
     }
 
-    pub fn songs(&self) -> impl Iterator<Item = &'_ model::Song> + '_ {
+    pub fn songs(&self) -> impl Iterator<Item = &'_ Arc<model::Song>> + '_ {
         self.song_list.models().map(|s| s.song())
     }
 }

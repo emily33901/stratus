@@ -1,22 +1,14 @@
 mod hls_source;
 mod mp3;
 
-use std::{
-    collections::{HashMap, VecDeque},
-    error::Error,
-    sync::{
-        atomic::{AtomicU16, AtomicUsize},
-        Arc,
-    },
-    thread, time,
-};
+use std::{collections::VecDeque, error::Error, sync::Arc, thread, time};
 
 use async_trait::async_trait;
 use eyre::Result;
 use log::{info, warn};
 use m3u8_rs::playlist::MediaPlaylist;
-use rodio::{Decoder, Source};
-use tokio::{select, sync::mpsc, sync::oneshot, sync::watch, sync::Mutex};
+use rodio::Source;
+use tokio::{select, sync::mpsc, sync::watch, sync::Mutex};
 
 use crate::mp3::HlsDecoder;
 
@@ -45,6 +37,7 @@ enum PlayerControl {
     Volume(f32),
     Seek(usize),
     Queue(SongId),
+    QueueMany(Vec<SongId>),
 }
 
 pub struct HlsPlayer {
@@ -93,11 +86,12 @@ impl HlsPlayer {
         }
     }
 
-    pub async fn queue(&self, playlist: &str, id: SongId) -> Result<()> {
-        let bytes = playlist.as_bytes().to_vec();
-        let playlist = m3u8_rs::parse_media_playlist_res(&bytes).unwrap();
-
+    pub async fn queue(&self, id: SongId) -> Result<()> {
         Ok(self.control.send(PlayerControl::Queue(id)).await?)
+    }
+
+    pub async fn queue_many(&self, ids: Vec<SongId>) -> Result<()> {
+        Ok(self.control.send(PlayerControl::QueueMany(ids)).await?)
     }
 
     pub async fn resume(&self) -> Result<()> {
@@ -182,9 +176,7 @@ async fn player_control(
                     PlayerControl::SkipOne => {
                         if let Some(queued_song) = queue.pop_front() {
                             // Resend the updated queue
-                            queued_song_tx
-                                .send(queue.clone())
-                                .unwrap();
+                            queued_song_tx.send_modify(|queue| {queue.pop_front();});
 
                             // Ask for the playlist AOT
                             let playlist = downloader.media_playlist(queued_song).await.unwrap();
@@ -227,14 +219,24 @@ async fn player_control(
                             cur_song_tx.send(None).unwrap();
                         }
                     }
-                    PlayerControl::Queue(playlist) => {
+                    PlayerControl::Queue(id) => {
                         info!("Queuing track");
-                        queue.push_back(playlist);
+                        queue.push_back(id);
                         queued_song_tx
                             .send(queue.clone())
                             .unwrap();
                         if queue.len() == 1 && sink.lock().await.empty() {
-                            loop_control_tx.send(PlayerControl::SkipOne).await.unwrap();
+                            let loop_control_tx = loop_control_tx.clone();
+                            tokio::spawn(async move {loop_control_tx.send(PlayerControl::SkipOne).await.unwrap()});
+                        }
+                    }
+                    PlayerControl::QueueMany(ids) => {
+                        info!("Queuing many");
+                        queue.extend(ids.iter());
+                        queued_song_tx.send_modify(|queue| queue.extend(ids));
+                        if sink.lock().await.empty() {
+                            let loop_control_tx = loop_control_tx.clone();
+                            tokio::spawn(async move {loop_control_tx.send(PlayerControl::SkipOne).await.unwrap()});
                         }
                     }
                     PlayerControl::Volume(_) => todo!(),

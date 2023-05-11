@@ -1,11 +1,12 @@
 pub use api::model::{Media, Object, Playlist, Song, User};
-use eyre::Result;
+use eyre::{eyre, Result};
 
 pub mod api {
-    use image::ImageFormat;
     use log::{info, warn};
 
     use serde::Deserialize;
+
+    use super::Id;
 
     pub mod model {
         use serde::{Deserialize, Deserializer, Serialize};
@@ -59,6 +60,10 @@ pub mod api {
             }
         }
 
+        pub trait Objectable {
+            fn object(&self) -> &Object;
+        }
+
         #[derive(Deserialize, Serialize, Debug, Default, Clone)]
         pub struct Format {
             pub mime_type: String,
@@ -90,6 +95,12 @@ pub mod api {
             pub avatar: Option<String>,
         }
 
+        impl Objectable for User {
+            fn object(&self) -> &Object {
+                return &self.object;
+            }
+        }
+
         #[derive(Deserialize, Serialize, Debug, Default, Clone)]
         pub struct Song {
             #[serde(flatten)]
@@ -104,6 +115,17 @@ pub mod api {
             pub full_duration: usize,
         }
 
+        #[derive(Deserialize, Serialize, Debug, Default, Clone)]
+        pub struct BlackboxSong {
+            pub id: i64,
+        }
+
+        impl Objectable for Song {
+            fn object(&self) -> &Object {
+                return &self.object;
+            }
+        }
+
         #[derive(Deserialize, Serialize, Debug, Clone, Default)]
         pub struct Playlist {
             #[serde(flatten)]
@@ -113,8 +135,14 @@ pub mod api {
             pub artwork: Option<String>,
             pub user: Object,
             #[serde(rename = "tracks")]
-            pub songs: Vec<Object>,
+            pub songs: Vec<serde_json::Value>,
             pub title: String,
+        }
+
+        impl Objectable for Playlist {
+            fn object(&self) -> &Object {
+                return &self.object;
+            }
         }
 
         #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -123,32 +151,7 @@ pub mod api {
         }
     }
 
-    impl Object {
-        pub async fn preload(&self) {
-            // TEMP(emily):
-            // do not preload since we dont cache right now
-            // info!("Not preloading");
-            return;
-
-            info!("Preloading: {}({})", self.kind, self.id);
-            match self.kind.as_str() {
-                "track" => {
-                    let _ = model::Song::resolve(self.id).await;
-                }
-                "user" => {
-                    let _ = model::User::resolve(self.id).await;
-                }
-                "playlist" => {
-                    let _ = model::Playlist::resolve(self.id).await;
-                }
-                _ => {
-                    warn!("Not preloading unknown type: {}", self.kind);
-                }
-            };
-        }
-    }
-
-    use std::{io::Cursor, sync::atomic::AtomicI64};
+    use std::{collections::HashMap, sync::atomic::AtomicI64};
 
     use eyre::{eyre, Result, WrapErr};
     use lazy_static::lazy_static;
@@ -170,32 +173,28 @@ pub mod api {
 
             headers
         };
-        static ref COMMON_PARAMS: [(&'static str, &'static str); 1] = [("client_id", CLIENT_ID)];
+        static ref COMMON_PARAMS: [(String, String); 1] = [("client_id".into(), CLIENT_ID.into())];
     }
 
-    async fn image(url: &str) -> Result<image::DynamicImage> {
-        let client = reqwest::Client::new();
-
-        let headers = COMMON_HEADERS.clone();
-        let params = *COMMON_PARAMS;
+    pub async fn image(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
+        // let headers = COMMON_HEADERS.clone();
+        // let params = COMMON_PARAMS.clone();
 
         let response = client
             .get(url)
-            .query(&params)
-            .headers(headers)
+            // .query(&params)
+            // .headers(headers)
             .send()
             .await?;
 
-        let bytes = response.bytes().await?;
-
-        Ok(image::io::Reader::with_format(Cursor::new(bytes), ImageFormat::Jpeg).decode()?)
+        Ok(response.bytes().await?.to_vec())
     }
 
     pub async fn hls_playlist(url: &str) -> Result<String> {
         let client = reqwest::Client::new();
 
         let headers = COMMON_HEADERS.clone();
-        let params = *COMMON_PARAMS;
+        let params = COMMON_PARAMS.clone();
 
         let response = client
             .get(url)
@@ -206,8 +205,10 @@ pub mod api {
 
         let text = response.text().await?;
 
-        let playlist: model::HlsPlaylist = serde_json::from_str(&text)
-            .expect(&format!("Failed to get HLS Playlist (text was {}", &text));
+        let playlist: model::HlsPlaylist = serde_json::from_str(&text).wrap_err(format!(
+            "Failed to decode HLS Playlist from API (text was {})",
+            &text
+        ))?;
 
         // now get the actual m3u8 from the response object
         let mut headers = header::HeaderMap::new();
@@ -225,22 +226,42 @@ pub mod api {
     }
 
     #[derive(Debug, Default)]
-    struct Endpoint<'a> {
-        endpoint: &'a str,
-        params: Option<&'a [(&'a str, &'a str)]>,
+    pub struct Endpoint {
+        endpoint: String,
+        params: Option<Vec<(String, String)>>,
     }
 
-    async fn object<'a, T: for<'de> serde::Deserialize<'de>>(
-        endpoint: &'a Endpoint<'a>,
+    impl Endpoint {
+        pub fn from_id<F: Fn(i64) -> String>(
+            id: super::Id<'_>,
+            format_endpoint: F,
+            params: Option<Vec<(String, String)>>,
+        ) -> Endpoint {
+            match id {
+                super::Id::Url(url) => Endpoint {
+                    endpoint: "resolve".into(),
+                    params: Some({
+                        let mut v = vec![("url".into(), url.into())];
+                        v.append(&mut params.unwrap_or_default());
+                        v
+                    }),
+                },
+                super::Id::Id(id) => Endpoint {
+                    endpoint: format_endpoint(id),
+                    params,
+                },
+            }
+        }
+    }
+
+    pub async fn object<T: for<'de> serde::Deserialize<'de>>(
+        client: &reqwest::Client,
+        mut endpoint: Endpoint,
     ) -> Result<T> {
-        info!("Cache miss for {:?}", endpoint);
-
-        let client = reqwest::Client::new();
-
         let headers = COMMON_HEADERS.clone();
-        let mut params = Vec::from(*COMMON_PARAMS);
-        if let Some(extra_params) = endpoint.params {
-            params.extend(extra_params.iter());
+        let mut params: Vec<_> = COMMON_PARAMS.clone().into();
+        if let Some(extra_params) = endpoint.params.take() {
+            params.extend(extra_params);
         }
 
         let final_endpoint = format!("{}/{}", API_ORIGIN, endpoint.endpoint);
@@ -255,8 +276,11 @@ pub mod api {
             .await?;
 
         let text = response.text().await?;
+        // let v: serde_json::Value = serde_json::from_str(&text)?;
+        // let text = serde_json::to_string_pretty(&v)?;
+
         let object = serde_json::from_str(&text)
-            .map_err(|e| eyre!(e).wrap_err(eyre!("T was {}", std::any::type_name::<T>())))?;
+            .map_err(|e| eyre!(e).wrap_err(eyre!("T was {}", std::any::type_name::<T>(),)))?;
 
         Ok(object)
     }
@@ -267,18 +291,18 @@ pub mod api {
     }
 
     impl model::User {
-        pub async fn resolve(id: i64) -> Result<Self> {
-            let endpoint = Endpoint {
-                endpoint: &format!("users/{}", id),
-                ..Default::default()
-            };
-            object(&endpoint).await
+        pub async fn resolve(client: &reqwest::Client, id: Id<'_>) -> Result<Self> {
+            object(
+                client,
+                Endpoint::from_id(id, |id| format!("users/{}", id), None),
+            )
+            .await
         }
 
-        pub async fn likes(&self) -> Result<model::Playlist> {
+        pub async fn likes(&self, client: &reqwest::Client) -> Result<model::Playlist> {
             #[derive(Deserialize)]
             struct Like {
-                track: model::Song,
+                track: serde_json::Value,
             }
 
             #[derive(Deserialize)]
@@ -289,12 +313,11 @@ pub mod api {
             info!("Loading likes");
 
             let endpoint = Endpoint {
-                endpoint: &format!("users/{}/track_likes", self.object.id),
-                params: Some(&[("limit", "100")]),
-                ..Default::default()
+                endpoint: format!("users/{}/track_likes", self.object.id),
+                params: Some(vec![("limit".into(), "2000".into())]),
             };
 
-            let likes: Likes = object(&endpoint).await?;
+            let likes: Likes = object(client, endpoint).await?;
             let id = next_fake_id();
 
             Ok(model::Playlist {
@@ -306,30 +329,26 @@ pub mod api {
                 },
                 artwork: self.avatar.clone(),
                 user: self.object.clone(),
-                songs: likes
-                    .collection
-                    .into_iter()
-                    .map(|x| x.track.object)
-                    .collect(),
+                songs: likes.collection.into_iter().map(|x| x.track).collect(),
                 title: format!("Liked by {}", self.username),
             })
         }
 
-        pub async fn songs(&self) -> Result<model::Playlist> {
+        pub async fn songs(&self, client: &reqwest::Client) -> Result<Option<model::Playlist>> {
             let endpoint = Endpoint {
-                endpoint: &format!("users/{}/tracks", self.object.id),
-                params: Some(&[("limit", "50")]),
+                endpoint: format!("users/{}/tracks", self.object.id),
+                params: Some(vec![("limit".into(), "50".into())]),
                 ..Default::default()
             };
 
             #[derive(Deserialize)]
             struct Songs {
-                collection: Vec<model::Song>,
+                collection: Vec<serde_json::Value>,
             }
 
-            let songs: Songs = object(&endpoint).await?;
+            let songs: Option<Songs> = object(client, endpoint).await?;
             let id = next_fake_id();
-            Ok(model::Playlist {
+            Ok(songs.map(|songs| model::Playlist {
                 object: Object {
                     id,
                     kind: "songs".into(),
@@ -338,29 +357,29 @@ pub mod api {
                 },
                 artwork: self.avatar.clone(),
                 user: self.object.clone(),
-                songs: songs.collection.into_iter().map(|x| x.object).collect(),
+                songs: songs.collection.into_iter().map(|x| x).collect(),
                 title: format!("Tracks by {}", self.username),
-            })
+            }))
         }
     }
 
     impl model::Song {
-        pub async fn resolve(id: i64) -> Result<Self> {
-            let endpoint = Endpoint {
-                endpoint: &format!("tracks/{}", id),
-                ..Default::default()
-            };
-            object(&endpoint).await
+        pub async fn resolve(client: &reqwest::Client, id: Id<'_>) -> Result<Self> {
+            object(
+                client,
+                Endpoint::from_id(id, |id| format!("tracks/{}", id), None),
+            )
+            .await
         }
     }
 
     impl model::Playlist {
-        pub async fn resolve(id: i64) -> Result<Self> {
-            let endpoint = Endpoint {
-                endpoint: &format!("playlists/{}", id),
-                ..Default::default()
-            };
-            object(&endpoint).await
+        pub async fn resolve(client: &reqwest::Client, id: Id<'_>) -> Result<Self> {
+            object(
+                client,
+                Endpoint::from_id(id, |id| format!("playlists/{}", id), None),
+            )
+            .await
         }
     }
 
@@ -368,26 +387,6 @@ pub mod api {
         pub async fn resolve(&self) -> Result<String> {
             Ok(hls_playlist(&self.url).await?)
         }
-    }
-
-    pub async fn resolve_url(url: &str) -> Result<Object> {
-        let client = reqwest::Client::new();
-
-        let headers = COMMON_HEADERS.clone();
-        let mut params = COMMON_PARAMS.to_vec();
-        params.push(("url", url));
-
-        let response = client
-            .get(format!("{}/{}", API_ORIGIN, "resolve"))
-            .query(&params)
-            .headers(headers)
-            .send()
-            .await?;
-
-        let text = response.text().await?;
-        let object = serde_json::from_str(&text)?;
-
-        Ok(object)
     }
 }
 
@@ -420,33 +419,45 @@ impl<'a> From<&'a OwnedId> for Id<'a> {
     }
 }
 
-pub struct SoundCloud {}
+pub struct SoundCloud {
+    client: reqwest::Client,
+}
 
 impl SoundCloud {
-    pub async fn song(id: Id<'_>) -> Result<Song> {
-        let id = match id {
-            Id::Url(url) => api::resolve_url(url).await?.id,
-            Id::Id(id) => id,
-        };
-
-        Ok(Song::resolve(id).await?)
+    pub fn new() -> Self {
+        Self {
+            client: Default::default(),
+        }
     }
 
-    pub async fn user(id: Id<'_>) -> Result<User> {
-        let id = match id {
-            Id::Url(url) => api::resolve_url(url).await?.id,
-            Id::Id(id) => id,
-        };
-
-        Ok(User::resolve(id).await?)
+    pub async fn song(&self, id: Id<'_>) -> Result<Song> {
+        Ok(Song::resolve(&self.client, id).await?)
     }
 
-    pub async fn playlist(id: Id<'_>) -> Result<Playlist> {
-        let id = match id {
-            Id::Url(url) => api::resolve_url(url).await?.id,
-            Id::Id(id) => id,
-        };
-        Ok(Playlist::resolve(id).await?)
+    pub async fn user(&self, id: Id<'_>) -> Result<User> {
+        Ok(User::resolve(&self.client, id).await?)
+    }
+
+    pub async fn playlist(&self, id: Id<'_>) -> Result<Playlist> {
+        Ok(Playlist::resolve(&self.client, id).await?)
+    }
+
+    pub async fn image(&self, url: &str) -> Result<iced::widget::image::Handle> {
+        let image = api::image(&self.client, &url.replace("-large", "-t120x120")).await?;
+        Ok(iced::widget::image::Handle::from_memory(image))
+    }
+
+    pub async fn likes(&self, id: Id<'_>) -> Result<Playlist> {
+        let user = self.user(id).await?;
+        Ok(user.likes(&self.client).await?)
+    }
+
+    pub async fn url(&self, url: &str) -> Result<Object> {
+        api::object(
+            &self.client,
+            api::Endpoint::from_id(Id::Url(url), |x| format!("{x}"), None),
+        )
+        .await
     }
 
     pub fn frame() {}

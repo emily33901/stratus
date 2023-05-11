@@ -1,19 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use iced::{
-    pure::{column, Element},
-    Command,
-};
-use log::info;
+use iced::widget;
+use iced::Command;
+use iced::Element;
 
-use crate::sc;
+use crate::model;
 
-use super::{
-    app::Message,
-    cache::{ImageCache, UserCache},
-    song::Song,
-};
+use super::{app::Message, song::Song};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum Display {
@@ -27,35 +21,41 @@ impl Default for Display {
     }
 }
 
-#[derive(Default)]
 pub struct SongHolder {
-    song: Option<Song>,
+    song: Song,
     display: Display,
 }
 
 pub struct SongList {
-    song_list: HashMap<sc::OwnedId, SongHolder>,
-    playlist: sc::Playlist,
+    song_list: HashMap<model::Id, SongHolder>,
+    playlist: Arc<model::Playlist>,
 }
 
 impl SongList {
-    pub fn new(playlist: sc::Playlist) -> Self {
+    pub fn new(playlist: Arc<model::Playlist>) -> Self {
         Self {
-            song_list: Default::default(),
+            song_list: HashMap::from_iter(playlist.songs.iter().map(|song| {
+                (
+                    song.id,
+                    SongHolder {
+                        song: Song::new(song.clone()),
+                        display: Display::Show,
+                    },
+                )
+            })),
             playlist,
         }
     }
 
     pub fn view(&self) -> Element<Message> {
-        let mut column = column();
+        let mut column = widget::column!();
 
         for song in self
             .song_list
             .values()
             .filter(|song| song.display == Display::Show)
-            .filter_map(|song| song.song.as_ref())
         {
-            column = column.push(song.view())
+            column = column.push(song.song.view())
         }
 
         column.spacing(20).into()
@@ -66,18 +66,14 @@ impl SongList {
 
         let str = str.to_owned();
 
-        let song_list: HashMap<sc::OwnedId, (Option<String>, Option<String>)> = self
+        let song_list: HashMap<model::Id, (String, String)> = self
             .song_list
             .iter()
             .map(|(k, v)| (k, (&v.song)))
             .map(|(k, song)| {
                 (
                     k.clone(),
-                    (
-                        song.as_ref().map(|song| song.title().to_owned()),
-                        song.as_ref()
-                            .and_then(|song| song.username().map(|s| s.to_owned())),
-                    ),
+                    (song.title().to_owned(), song.username().to_owned()),
                 )
             })
             .collect();
@@ -98,19 +94,15 @@ impl SongList {
                     song_list
                         .iter()
                         .map(|(k, (title, username))| {
-                            (
-                                k.clone(),
-                                title
-                                    .as_ref()
-                                    .and_then(|title| matcher.fuzzy_match(title, &str))
-                                    .or_else(|| {
-                                        username.as_ref().and_then(|username| {
-                                            matcher.fuzzy_match(username, &str)
-                                        })
-                                    })
-                                    .map(|_| Display::Show)
-                                    .unwrap_or(Display::Hidden),
-                            )
+                            (k.clone(), {
+                                let title_score = matcher.fuzzy_match(title, &str);
+                                let username_score = matcher.fuzzy_match(username, &str);
+                                if title_score.is_none() && username_score.is_none() {
+                                    Display::Hidden
+                                } else {
+                                    Display::Show
+                                }
+                            })
                         })
                         .collect()
                 },
@@ -119,62 +111,61 @@ impl SongList {
         }
     }
 
-    pub fn song_loaded(
-        &mut self,
-        song: &sc::Song,
-        image_cache: &Arc<ImageCache>,
-        user_cache: &Arc<UserCache>,
-    ) -> Command<Message> {
-        self.song_list.insert(
-            sc::OwnedId::Id(song.object.id),
-            SongHolder {
-                song: Some(Song::new(song.clone(), image_cache.clone())),
-                display: Display::Show,
-            },
-        );
+    // pub fn song_loaded(
+    //     &mut self,
+    //     song: Arc<model::Song>,
+    // ) -> Command<Message> {
+    //     self.song_list.insert(
+    //         song.id,
+    //         SongHolder {
+    //             song: Some(Song::new(song.clone(), image_cache.clone())),
+    //             display: Display::Show,
+    //         },
+    //     );
 
-        let object = song.user.clone();
-        let user_cache = user_cache.clone();
-        Command::perform(
-            async move {
-                user_cache.try_get(&object);
-            },
-            Message::None,
-        )
-    }
+    //     let object = song.user.clone();
+    //     let user_cache = user_cache.clone();
+    //     Command::perform(
+    //         async move {
+    //             user_cache.try_get(&object);
+    //         },
+    //         Message::None,
+    //     )
+    // }
 
-    pub fn user_loaded(
-        &mut self,
-        user: &sc::User,
-        _image_cache: &Arc<ImageCache>,
-    ) -> Command<Message> {
-        for song in self
-            .song_list
-            .values_mut()
-            .filter_map(|holder| holder.song.as_mut())
-        {
-            if song.user_id() == user.object.id {
-                song.user = Some(user.clone());
-            }
-        }
+    // pub fn user_loaded(
+    //     &mut self,
+    //     user: &Arc<model::User>,
+    //     _image_cache: &Arc<ImageCache>,
+    // ) -> Command<Message> {
+    //     for song in self
+    //         .song_list
+    //         .values_mut()
+    //         .filter_map(|holder| holder.song.as_mut())
+    //     {
+    //         if song.user_id() == user.object.id {
+    //             song.user = Some(user.clone());
+    //         }
+    //     }
 
-        Command::none()
-    }
+    //     Command::none()
+    // }
 
     pub fn models(&self) -> impl Iterator<Item = &'_ Song> {
-        self.song_list.values().filter_map(|h| h.song.as_ref())
+        self.song_list.values().map(|h| &h.song)
     }
 
-    pub fn playlist(&self) -> &sc::Playlist {
+    pub fn playlist(&self) -> &Arc<model::Playlist> {
         &self.playlist
     }
+
     pub fn title(&self) -> &str {
-        &self.playlist.title
+        self.playlist.title.as_str()
     }
 
     pub(crate) fn filter_computed(
         &mut self,
-        computed: &HashMap<sc::OwnedId, Display>,
+        computed: &HashMap<model::Id, Display>,
     ) -> Command<Message> {
         for (k, v) in computed {
             self.song_list

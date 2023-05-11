@@ -1,35 +1,39 @@
-use super::{app::Message, cache::ImageCache, song_list::SongList};
-use crate::sc;
-use iced::pure::{column, row, text, Element};
+use super::{app::Message, song_list::SongList};
+use crate::model;
+use iced::widget;
+use iced::widget::image::Handle;
+use iced::widget::text;
+use iced::Element;
 use std::sync::Arc;
 
 pub struct UserPage {
-    user: sc::User,
-    image_cache: Arc<ImageCache>,
+    user: Arc<model::User>,
+    store: Arc<model::Store>,
     pub song_list: Option<SongList>,
 }
 
 impl UserPage {
-    pub fn new(user: sc::User, image_cache: &Arc<ImageCache>) -> Self {
+    pub fn new(user: Arc<model::User>, store: &Arc<model::Store>) -> Self {
         Self {
             user,
-            image_cache: image_cache.clone(),
+            store: store.clone(),
             song_list: None,
         }
     }
 
     pub fn view(&self) -> Element<Message> {
-        let mut column = column().spacing(20);
+        let mut column = widget::column!().spacing(20);
 
-        let user_avatar: Element<Message> =
-            if let Some(avatar) = self.image_cache.image_for_user(&self.user) {
-                avatar.width(iced::Length::Units(100)).into()
-            } else {
-                text("").into()
-            };
+        let user_avatar: Element<Message> = if let Some(avatar) = &self.user.avatar {
+            iced::widget::image::Image::new(avatar.as_ref().clone())
+                .width(iced::Length::Fixed(100.0))
+                .into()
+        } else {
+            text("").into()
+        };
 
         column = column.push(
-            row()
+            widget::row!()
                 .push(user_avatar)
                 .push(text(format!("{}", self.user.username))),
         );
@@ -41,7 +45,7 @@ impl UserPage {
         column.into()
     }
 
-    pub fn update_songs(&mut self, songs: sc::Playlist) {
+    pub fn update_songs(&mut self, songs: Arc<model::Playlist>) {
         self.song_list = Some(SongList::new(songs))
     }
 }

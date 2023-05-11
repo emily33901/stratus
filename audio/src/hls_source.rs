@@ -3,7 +3,6 @@ use std::{
     task::Poll,
 };
 
-use log::{info, warn};
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc::Receiver;
 

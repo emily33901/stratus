@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 json = "0.12"
 toml = "0.5"
@@ -19,7 +19,10 @@ scopeguard = "1.1"
 lazy_static = "1.4"
 derive_more = "0.99"
 futures = "0.3"
-iced = { version = "0.4", features = ["tokio", "image", "pure"] }
+iced = { version = "0.9", features = ["tokio", "image"] }
+iced_native = "*"
+iced_core = "*"
+iced_style = "*"
 log = "0.4"
 fern = "0.5"
 image = "0.23.14"
@@ -27,13 +30,11 @@ static_assertions = "1.1.0"
 audio = { path = "./audio" }
 async-trait = "0.1.50"
 parking_lot = "0.11.1"
-iced_native = "*"
-iced_core = "*"
-iced_style = "*"
 fuzzy-matcher = "*"
 backoff = { version = "0.3", features = ["tokio"] }
 ellipse = "0.2.0"
 console-subscriber = "*"
+arc-swap = "1.6.0"
 
 [profile.release]
 debug = true

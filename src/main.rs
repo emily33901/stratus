@@ -1,11 +1,15 @@
+mod cache;
+mod model;
 mod sc;
 mod ui;
 
 use eyre::Result;
-use iced::pure::Application;
+use iced::Application;
 
 fn main() -> Result<()> {
-    // console_subscriber::init();
+    console_subscriber::init();
+
+    std::panic::set_hook(Box::new(|x| log::error!("Panic {x}")));
 
     fern::Dispatch::new()
         .format(|out, message, record| {

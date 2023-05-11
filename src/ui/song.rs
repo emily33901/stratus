@@ -1,45 +1,35 @@
 use std::sync::Arc;
 
-use iced::pure::{button, row, text, widget::Column, Element};
+use iced::widget;
+use iced::Element;
 use iced::Length;
 
-use crate::sc::{self};
+use crate::model;
 
-use super::{app::Message, cache::ImageCache};
+use super::app::Message;
 
 pub struct Song {
-    song: sc::Song,
-    pub user: Option<sc::User>,
-    image_cache: Arc<ImageCache>,
+    song: Arc<model::Song>,
 }
 
 impl Song {
     pub fn view(&self) -> Element<Message> {
         {
-            if let Some(image) = self.image_cache.image_for_song(&self.song) {
-                row().push(image.width(Length::Units(100)))
+            if let Some(image) = &self.song.artwork {
+                widget::row!().push(
+                    widget::image::Image::new(image.as_ref().clone()).width(Length::Fixed(100.0)),
+                )
             } else {
-                row()
+                widget::row!()
             }
             .push(
-                row()
+                widget::row!()
                     .push(
-                        Column::new()
-                            .push(text(&self.song.title))
+                        widget::column!()
+                            .push(widget::text(&self.song.title))
                             .push(
-                                button(text(
-                                    self.user
-                                        .as_ref()
-                                        .map(|user| user.username.clone())
-                                        .unwrap_or_default(),
-                                ))
-                                .on_press(
-                                    self.user
-                                        .as_ref()
-                                        .map(|user| Message::UserClicked(user.clone()))
-                                        .or(Some(Message::none()))
-                                        .unwrap(),
-                                ),
+                                widget::button(widget::text(self.song.user.username.clone()))
+                                    .on_press(Message::UserClicked(self.song.user.clone())),
                             )
                             .spacing(20)
                             .width(Length::Shrink),
@@ -47,9 +37,8 @@ impl Song {
                     .width(Length::Fill)
                     .spacing(20)
                     .push(
-                        button(text("Add to queue"))
-                            .on_press(Message::SongQueue(self.song.clone()))
-                            .style(crate::ui::style::Theme::Dark),
+                        widget::button(widget::text("Add to queue"))
+                            .on_press(Message::SongQueue(self.song.clone())),
                     ),
             )
         }
@@ -61,25 +50,21 @@ impl Song {
         &self.song.title
     }
 
-    pub fn user_id(&self) -> sc::api::model::Id {
+    pub fn user_id(&self) -> model::Id {
         self.song.user.id
     }
 
-    pub fn song(&self) -> &sc::api::model::Song {
+    pub fn song(&self) -> &Arc<model::Song> {
         &self.song
     }
 
-    pub fn username(&self) -> Option<&str> {
-        self.user.as_ref().map(|user| user.username.as_ref())
+    pub fn username(&self) -> &str {
+        self.song.user.username.as_ref()
     }
 }
 
 impl Song {
-    pub fn new(song: sc::Song, image_cache: Arc<ImageCache>) -> Self {
-        Self {
-            song,
-            user: None,
-            image_cache,
-        }
+    pub fn new(song: Arc<model::Song>) -> Self {
+        Self { song }
     }
 }
