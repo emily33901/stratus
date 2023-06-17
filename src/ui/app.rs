@@ -126,63 +126,15 @@ impl Application for App {
         match &message {
             Self::Message::None(_) => return Command::none(),
             Message::PlayerState(state) => {
-                self.player_time = state.pos as f32 / state.sample_rate as f32 / 2.0;
-                self.total_time = state.total;
+                // TODO(emily): This is so stupid. Please either have
+                // both as seconds, or both as sample rates
+                self.controls.set_player_state(state.clone());
+
                 return Command::none();
             }
             _ => {}
         };
 
-        self.handle_message(message)
-    }
-
-    fn subscription(&self) -> iced::Subscription<Self::Message> {
-        iced::Subscription::batch([
-            watch_subscription("player state", self.player.state_rx()).map(Message::PlayerState),
-            watch_subscription("player song", self.player.cur_song()).map(Message::CurSongChange),
-            watch_subscription("queue changed", self.player.queued_watch())
-                .map(Message::QueueChanged),
-        ])
-    }
-
-    fn view(&self) -> Element<Self::Message> {
-        widget::container(
-            widget::column!()
-                .push(
-                    widget::scrollable(
-                        widget::container(match &self.page {
-                            Page::Main => widget::text("Main page").into(),
-                            Page::Playlist(playlist_page) => playlist_page.view(),
-                            Page::User(user_page) => user_page.view(),
-                        })
-                        .padding(40),
-                    )
-                    .height(iced::Length::FillPortion(1)),
-                )
-                .push({
-                    widget::container(self.controls.view(
-                        std::time::Duration::from_secs_f32(self.player_time),
-                        std::time::Duration::from_secs_f32(self.total_time),
-                    ))
-                    .height(iced::Length::Fixed(80.0))
-                    .padding(iced::Padding::new(20.0))
-                }),
-        )
-        .width(iced::Length::Fill)
-        .height(iced::Length::Fill)
-        .center_x()
-        .center_y()
-        .into()
-    }
-    fn theme(&self) -> Self::Theme {
-        iced::Theme::Dark
-    }
-
-    type Theme = iced::Theme;
-}
-
-impl App {
-    fn handle_message(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::None(_) | Message::Tick | Message::PlayerState(_) => Command::none(),
             Message::PlaylistResolved(playlist) => self.playlist_loaded(playlist),
@@ -273,6 +225,49 @@ impl App {
         }
     }
 
+    fn subscription(&self) -> iced::Subscription<Self::Message> {
+        iced::Subscription::batch([
+            watch_subscription("player state", self.player.state_rx()).map(Message::PlayerState),
+            watch_subscription("player song", self.player.cur_song()).map(Message::CurSongChange),
+            watch_subscription("queue changed", self.player.queued_watch())
+                .map(Message::QueueChanged),
+        ])
+    }
+
+    fn view(&self) -> Element<Self::Message> {
+        widget::container(
+            widget::column!()
+                .push(
+                    widget::scrollable(
+                        widget::container(match &self.page {
+                            Page::Main => widget::text("Main page").into(),
+                            Page::Playlist(playlist_page) => playlist_page.view(),
+                            Page::User(user_page) => user_page.view(),
+                        })
+                        .padding(40),
+                    )
+                    .height(iced::Length::FillPortion(1)),
+                )
+                .push({
+                    widget::container(self.controls.view())
+                        .height(iced::Length::Fixed(80.0))
+                        .padding(iced::Padding::new(20.0))
+                }),
+        )
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill)
+        .center_x()
+        .center_y()
+        .into()
+    }
+    fn theme(&self) -> Self::Theme {
+        iced::Theme::Dark
+    }
+
+    type Theme = iced::Theme;
+}
+
+impl App {
     fn playlist_loaded(&mut self, playlist: Arc<model::Playlist>) -> Command<Message> {
         info!("Playlist loaded");
         match &mut self.page {

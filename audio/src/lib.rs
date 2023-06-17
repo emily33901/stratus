@@ -47,7 +47,7 @@ enum PlayerControl {
     QueueMany(Vec<SongId>),
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct PlayerState {
     pub playing: Playing,
 
@@ -56,6 +56,17 @@ pub struct PlayerState {
     pub pos: usize,
     /// total time in seconds
     pub total: f32,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            playing: Default::default(),
+            sample_rate: 44100,
+            pos: Default::default(),
+            total: Default::default(),
+        }
+    }
 }
 
 pub struct HlsPlayer {
@@ -168,29 +179,6 @@ async fn player_control(
     let mut queue = VecDeque::<SongId>::new();
 
     let state_tx = Arc::new(state_tx);
-
-    // Appease compiler by creating an mpsc channel that we use within this loop, and then relay to the
-    // outside watch here.
-    // I think this shouldnt be needed, but the compiler says otherwise
-    // let (position_tx, mut position_rx) = mpsc::channel(1);
-    // let (playing_tx, mut playing_rx) = mpsc::channel(1);
-    // let _handles = vec![
-    //     tokio::spawn(async {
-    //         while let Some(position) = position_rx.recv().await {
-    //             state_tx.send_modify(|state| {
-    //                 (state.sample_rate, state.pos, state.total) = position;
-    //             })
-    //         }
-    //     }),
-    //     tokio::spawn(async {
-    //         while let Some(playing) = playing_rx.recv().await {
-    //             state_tx.send_modify(|state| {
-    //                 state.playing = playing;
-    //             })
-    //         }
-    //     }),
-    // ];
-
     let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
 
     loop {

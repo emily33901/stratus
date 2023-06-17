@@ -7,6 +7,7 @@ use std::{ops::RangeInclusive, sync::Arc, time};
 pub struct ControlsElement {
     options: Vec<String>,
     cur_song: Option<Arc<model::Song>>,
+    player_state: audio::PlayerState,
 }
 
 impl ControlsElement {
@@ -14,6 +15,7 @@ impl ControlsElement {
         Self {
             cur_song: None,
             options: vec![],
+            player_state: Default::default(),
         }
     }
 
@@ -30,16 +32,32 @@ impl ControlsElement {
         self.cur_song = song;
     }
 
-    pub fn view(&self, location: time::Duration, total: time::Duration) -> Element<Message> {
+    pub fn view(&self) -> Element<Message> {
         let queue = iced::widget::container(iced::widget::pick_list(
             &self.options,
             self.cur_song.as_ref().map(|s| s.title.clone()),
             |_x| Message::none(),
         ));
 
+        use std::time::Duration;
+
+        // TODO(emily): Conversion to (and then from, litterally moments later) Duration here are completely useless
+        let location = Duration::from_secs_f32(
+            self.player_state.pos as f32 / self.player_state.sample_rate as f32 / 2.0,
+        );
+        let total = Duration::from_secs_f32(self.player_state.total);
+
+        let play_pause = match self.player_state.playing {
+            audio::Playing::Playing => {
+                iced::widget::button(iced::widget::text("pause")).on_press(Message::Pause)
+            }
+            audio::Playing::Paused => {
+                iced::widget::button(iced::widget::text("play")).on_press(Message::Resume)
+            }
+        };
+
         iced::widget::row!(
-            iced::widget::button(iced::widget::text("play")).on_press(Message::Resume),
-            iced::widget::button(iced::widget::text("pause")).on_press(Message::Pause),
+            play_pause,
             iced::widget::button(iced::widget::text("skip")).on_press(Message::Skip),
             iced::widget::text(format!("{:.1}", location.as_secs_f32())),
             iced::widget::slider(
@@ -65,5 +83,9 @@ impl ControlsElement {
         .align_items(iced::Alignment::Center)
         .spacing(20)
         .into()
+    }
+
+    pub(crate) fn set_player_state(&mut self, state: audio::PlayerState) {
+        self.player_state = state;
     }
 }
