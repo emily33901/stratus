@@ -1,8 +1,8 @@
 use eyre::{eyre, Result};
-use futures::{future::BoxFuture, Future};
+use futures::{Future};
 use std::{
     cmp,
-    collections::{HashMap, HashSet},
+    collections::{HashMap},
     fmt::Debug,
     sync::Arc,
 };

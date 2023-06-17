@@ -1,8 +1,8 @@
-use std::{collections::VecDeque, ops::RangeInclusive, sync::Arc, time};
+use std::{ops::RangeInclusive, sync::Arc, time};
 
 use iced::{Command, Element};
 
-use crate::model::{self, Store};
+use crate::model::{self};
 
 use super::app::Message;
 

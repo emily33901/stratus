@@ -1,8 +1,8 @@
 pub use api::model::{Media, Object, Playlist, Song, User};
-use eyre::{eyre, Result};
+use eyre::{Result};
 
 pub mod api {
-    use log::{info, warn};
+    use log::{info};
 
     use serde::Deserialize;
 
@@ -151,7 +151,7 @@ pub mod api {
         }
     }
 
-    use std::{collections::HashMap, sync::atomic::AtomicI64};
+    use std::{sync::atomic::AtomicI64};
 
     use eyre::{eyre, Result, WrapErr};
     use lazy_static::lazy_static;

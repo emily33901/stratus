@@ -3,7 +3,7 @@ use futures::stream::BoxStream;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{watch};
 
 use iced::widget;
 use iced::{self, executor, Command};

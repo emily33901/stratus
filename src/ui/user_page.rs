@@ -1,7 +1,7 @@
 use super::{app::Message, song_list::SongList};
 use crate::model;
 use iced::widget;
-use iced::widget::image::Handle;
+
 use iced::widget::text;
 use iced::Element;
 use std::sync::Arc;

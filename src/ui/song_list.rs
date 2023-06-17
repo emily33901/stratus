@@ -83,7 +83,7 @@ impl SongList {
                 async move {
                     song_list
                         .iter()
-                        .map(|(k, v)| (k.clone(), Display::Show))
+                        .map(|(k, _v)| (k.clone(), Display::Show))
                         .collect()
                 },
                 Message::SongListFilterComputed,
