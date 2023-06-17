@@ -106,7 +106,7 @@ pub mod api {
             #[serde(flatten)]
             pub object: Object,
 
-            pub user: Object,
+            pub user: User,
             #[serde(rename = "artwork_url")]
             pub artwork: Option<String>,
             pub title: String,

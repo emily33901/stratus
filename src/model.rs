@@ -1,7 +1,10 @@
 use crate::sc;
 use crate::{cache::Cache, sc::SoundCloud};
 use eyre::{eyre, Result};
+use parking_lot::Mutex;
+use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::watch;
 
 pub type Id = i64;
 
@@ -113,25 +116,29 @@ impl Store {
         }
     }
 
+    pub async fn resolve_sc_user(&self, sc_user: sc::api::model::User) -> Result<Arc<User>> {
+        let avatar = if let Some(url) = sc_user.avatar.as_ref() {
+            Some(self.image(&url).await?)
+        } else {
+            None
+        };
+
+        Ok(Arc::new(User {
+            id: sc_user.object.id,
+            permalink: sc_user.object.url,
+            uri: sc_user.object.uri,
+            username: sc_user.username,
+            avatar: avatar,
+            avatar_url: sc_user.avatar,
+        }))
+    }
+
     pub async fn user(&self, id: &Id) -> Result<Arc<User>> {
         Ok(self
             .user_cache
             .get(id, async {
                 let sc_user = self.soundcloud.user(sc::Id::Id(*id)).await?;
-                let avatar = if let Some(url) = sc_user.avatar.as_ref() {
-                    Some(self.image(&url).await?)
-                } else {
-                    None
-                };
-
-                Ok(Arc::new(User {
-                    id: sc_user.object.id,
-                    permalink: sc_user.object.url,
-                    uri: sc_user.object.uri,
-                    username: sc_user.username,
-                    avatar: avatar,
-                    avatar_url: sc_user.avatar,
-                }))
+                self.resolve_sc_user(sc_user).await
             })
             .await?)
     }
@@ -167,7 +174,7 @@ impl Store {
             id: sc_song.object.id,
             permalink: sc_song.object.url,
             uri: sc_song.object.uri,
-            user: self.user(&sc_song.user.id).await?,
+            user: self.resolve_sc_user(sc_song.user).await?,
             artwork: artwork,
             artwork_url: sc_song.artwork,
             title: sc_song.title,
@@ -245,5 +252,48 @@ impl Store {
 
     pub async fn resolve_url(&self, url: &str) -> Result<Id> {
         self.soundcloud.url(url).await.map(|r| r.id)
+    }
+}
+
+#[derive(Clone, Debug)]
+enum _Eventually<T> {
+    NotAvailable(watch::Receiver<Arc<T>>),
+    Available(Arc<T>),
+}
+
+impl<T> _Eventually<T> {
+    pub fn new(sender: &watch::Sender<Arc<T>>) -> Self {
+        Self::NotAvailable(sender.subscribe())
+    }
+}
+
+#[derive(Debug)]
+struct Eventually<T: Clone>(Mutex<_Eventually<T>>);
+
+impl<T: Clone> Clone for Eventually<T> {
+    fn clone(&self) -> Self {
+        let inside = self.0.lock();
+        Self(Mutex::new(inside.clone()))
+    }
+}
+
+impl<T: Clone> Eventually<T> {
+    pub fn maybe(&self) -> Option<Arc<T>> {
+        let mut zelf = self.0.try_lock();
+        match zelf.as_mut() {
+            Some(garbage) => match &mut **garbage {
+                _Eventually::NotAvailable(rx) => {
+                    if let Ok(true) = rx.has_changed() {
+                        let v = rx.borrow_and_update().clone();
+                        **garbage = _Eventually::Available(v.clone());
+                        Some(v)
+                    } else {
+                        None
+                    }
+                }
+                _Eventually::Available(v) => Some(v.clone()),
+            },
+            None => None,
+        }
     }
 }
