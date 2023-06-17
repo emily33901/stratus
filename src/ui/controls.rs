@@ -1,23 +1,19 @@
-use std::{ops::RangeInclusive, sync::Arc, time};
-
-use iced::{Command, Element};
-
-use crate::model::{self};
-
 use super::app::Message;
-
+use crate::model::{self};
 use ellipse::Ellipse;
+use iced::{Command, Element, Length};
+use std::{ops::RangeInclusive, sync::Arc, time};
 
 pub struct ControlsElement {
     options: Vec<String>,
-    cur_song_title: Option<String>,
+    cur_song: Option<Arc<model::Song>>,
 }
 
 impl ControlsElement {
     pub fn new() -> Self {
         Self {
-            cur_song_title: None,
-            options: Default::default(),
+            cur_song: None,
+            options: vec![],
         }
     }
 
@@ -30,32 +26,44 @@ impl ControlsElement {
         Command::none()
     }
 
-    pub fn set_cur_song_title(&mut self, title: Option<String>) {
-        self.cur_song_title = title;
+    pub fn set_cur_song(&mut self, song: Option<Arc<model::Song>>) {
+        self.cur_song = song;
     }
 
     pub fn view(&self, location: time::Duration, total: time::Duration) -> Element<Message> {
         let queue = iced::widget::container(iced::widget::pick_list(
             &self.options,
-            self.cur_song_title.clone(),
+            self.cur_song.as_ref().map(|s| s.title.clone()),
             |_x| Message::none(),
         ));
 
-        iced::widget::row!()
-            .push(iced::widget::button(iced::widget::text("play")).on_press(Message::Resume))
-            .push(iced::widget::button(iced::widget::text("pause")).on_press(Message::Pause))
-            .push(iced::widget::button(iced::widget::text("skip")).on_press(Message::Skip))
-            .push(iced::widget::text(format!("{:.1}", location.as_secs_f32())))
-            .push(iced::widget::slider(
+        iced::widget::row!(
+            iced::widget::button(iced::widget::text("play")).on_press(Message::Resume),
+            iced::widget::button(iced::widget::text("pause")).on_press(Message::Pause),
+            iced::widget::button(iced::widget::text("skip")).on_press(Message::Skip),
+            iced::widget::text(format!("{:.1}", location.as_secs_f32())),
+            iced::widget::slider(
                 RangeInclusive::new(0.0, total.as_secs_f64()),
                 location.as_secs_f64(),
                 |_| Message::None(()),
-            ))
-            .push(iced::widget::text(format!("{:.1}", total.as_secs_f32())))
-            .push(queue)
-            .align_items(iced::Alignment::Center)
-            .spacing(20)
-            .padding(iced::Padding::new(20.0))
-            .into()
+            ),
+            iced::widget::text(format!("{:.1}", total.as_secs_f32())),
+            if let Some(artwork) = self
+                .cur_song
+                .as_ref()
+                .and_then(|s| s.artwork.clone())
+                .as_ref()
+            {
+                iced::widget::container(
+                    iced::widget::Image::new(artwork.as_ref().clone()).height(Length::Fixed(120.0)),
+                )
+            } else {
+                iced::widget::container(iced::widget::text(""))
+            },
+            queue
+        )
+        .align_items(iced::Alignment::Center)
+        .spacing(20)
+        .into()
     }
 }

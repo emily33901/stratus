@@ -1,8 +1,8 @@
 pub use api::model::{Media, Object, Playlist, Song, User};
-use eyre::{Result};
+use eyre::Result;
 
 pub mod api {
-    use log::{info};
+    use log::info;
 
     use serde::Deserialize;
 
@@ -97,7 +97,7 @@ pub mod api {
 
         impl Objectable for User {
             fn object(&self) -> &Object {
-                return &self.object;
+                &self.object
             }
         }
 
@@ -151,7 +151,7 @@ pub mod api {
         }
     }
 
-    use std::{sync::atomic::AtomicI64};
+    use std::sync::atomic::AtomicI64;
 
     use eyre::{eyre, Result, WrapErr};
     use lazy_static::lazy_static;

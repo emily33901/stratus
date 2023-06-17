@@ -1,6 +1,6 @@
 use crate::sc;
 use crate::{cache::Cache, sc::SoundCloud};
-use eyre::{Result};
+use eyre::Result;
 use parking_lot::Mutex;
 
 use std::sync::Arc;

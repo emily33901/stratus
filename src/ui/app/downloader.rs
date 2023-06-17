@@ -1,4 +1,4 @@
-use crate::{model};
+use crate::model;
 use async_trait::async_trait;
 use eyre::{eyre, Result};
 use log::warn;

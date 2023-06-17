@@ -16,8 +16,8 @@ impl Song {
     pub fn view(&self) -> Element<Message> {
         {
             if let Some(image) = &self.song.artwork {
-                widget::row!().push(
-                    widget::image::Image::new(image.as_ref().clone()).width(Length::Fixed(100.0)),
+                widget::row!(
+                    widget::image::Image::new(image.as_ref().clone()).width(Length::Fixed(100.0))
                 )
             } else {
                 widget::row!()

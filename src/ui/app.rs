@@ -3,7 +3,7 @@ use futures::stream::BoxStream;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{watch};
+use tokio::sync::watch;
 
 use iced::widget;
 use iced::{self, executor, Command};
@@ -65,7 +65,7 @@ impl App {
 pub enum Message {
     None(()),
     Tick,
-    PlayerTime((usize, f32)),
+    PlayerState(audio::PlayerState),
 
     QueueChanged(VecDeque<audio::SongId>),
     QueueResolved(Vec<Arc<model::Song>>),
@@ -125,9 +125,9 @@ impl Application for App {
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         match &message {
             Self::Message::None(_) => return Command::none(),
-            Message::PlayerTime((time, total)) => {
-                self.player_time = *time as f32 / 44100.0 / 2.0;
-                self.total_time = total.clone();
+            Message::PlayerState(state) => {
+                self.player_time = state.pos as f32 / state.sample_rate as f32 / 2.0;
+                self.total_time = state.total;
                 return Command::none();
             }
             _ => {}
@@ -138,7 +138,7 @@ impl Application for App {
 
     fn subscription(&self) -> iced::Subscription<Self::Message> {
         iced::Subscription::batch([
-            watch_subscription("player pos", self.player.pos_rx()).map(Message::PlayerTime),
+            watch_subscription("player state", self.player.state_rx()).map(Message::PlayerState),
             watch_subscription("player song", self.player.cur_song()).map(Message::CurSongChange),
             watch_subscription("queue changed", self.player.queued_watch())
                 .map(Message::QueueChanged),
@@ -165,6 +165,7 @@ impl Application for App {
                         std::time::Duration::from_secs_f32(self.total_time),
                     ))
                     .height(iced::Length::Fixed(80.0))
+                    .padding(iced::Padding::new(20.0))
                 }),
         )
         .width(iced::Length::Fill)
@@ -183,7 +184,7 @@ impl Application for App {
 impl App {
     fn handle_message(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::None(_) | Message::Tick | Message::PlayerTime(_) => Command::none(),
+            Message::None(_) | Message::Tick | Message::PlayerState(_) => Command::none(),
             Message::PlaylistResolved(playlist) => self.playlist_loaded(playlist),
             Message::SongQueue(song) => self.queue_song(&song),
             Message::Resume => {
@@ -266,8 +267,7 @@ impl App {
                 Command::perform(async { None }, Message::CurSongResolved)
             }
             Message::CurSongResolved(song) => {
-                self.controls
-                    .set_cur_song_title(song.map(|s| s.title.clone()));
+                self.controls.set_cur_song(song);
                 Command::none()
             }
         }

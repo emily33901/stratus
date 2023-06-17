@@ -12,6 +12,13 @@ use tokio::{select, sync::mpsc, sync::watch, sync::Mutex};
 
 use crate::mp3::HlsDecoder;
 
+#[derive(Default, Debug, Clone, Copy)]
+pub enum Playing {
+    Playing,
+    #[default]
+    Paused,
+}
+
 #[async_trait]
 pub trait Downloader: Send + Sync {
     /// Download a chunk of a HLS stream
@@ -40,9 +47,20 @@ enum PlayerControl {
     QueueMany(Vec<SongId>),
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct PlayerState {
+    pub playing: Playing,
+
+    pub sample_rate: usize,
+    /// Number of samples into the track
+    pub pos: usize,
+    /// total time in seconds
+    pub total: f32,
+}
+
 pub struct HlsPlayer {
     control: mpsc::Sender<PlayerControl>,
-    pos_rx: watch::Receiver<(usize, f32)>,
+    state_rx: watch::Receiver<PlayerState>,
     cur_song: watch::Receiver<Option<SongId>>,
     queued_song: watch::Receiver<VecDeque<SongId>>,
 }
@@ -52,10 +70,8 @@ impl HlsPlayer {
         let (control_tx, control_rx) = mpsc::channel(10);
         let loop_control_tx = control_tx.clone();
 
-        let (pos_tx, pos_rx) = watch::channel((0, 0.0));
-
-        let total: Arc<parking_lot::Mutex<f32>> = Default::default();
-        let loop_total = total.clone();
+        // TODO(emily): Make Option
+        let (state_tx, state_rx) = watch::channel(PlayerState::default());
 
         let (cur_song_tx, cur_song_rx) = watch::channel(None);
         let (queued_song_tx, queued_song_rx) = watch::channel(VecDeque::new());
@@ -69,8 +85,7 @@ impl HlsPlayer {
                 .block_on(player_control(
                     control_rx,
                     downloader,
-                    pos_tx,
-                    loop_total,
+                    state_tx,
                     loop_control_tx,
                     cur_song_tx,
                     cur_song_rx2,
@@ -82,7 +97,7 @@ impl HlsPlayer {
             control: control_tx,
             cur_song: cur_song_rx,
             queued_song: queued_song_rx,
-            pos_rx,
+            state_rx,
         }
     }
 
@@ -115,8 +130,8 @@ impl HlsPlayer {
         Ok(self.control.send(PlayerControl::SkipOne).await?)
     }
 
-    pub fn pos_rx(&self) -> watch::Receiver<(usize, f32)> {
-        self.pos_rx.clone()
+    pub fn state_rx(&self) -> watch::Receiver<PlayerState> {
+        self.state_rx.clone()
     }
 
     pub fn queued_watch(&self) -> watch::Receiver<VecDeque<SongId>> {
@@ -131,8 +146,7 @@ impl HlsPlayer {
 async fn player_control(
     mut control_rx: mpsc::Receiver<PlayerControl>,
     downloader: Arc<dyn Downloader>,
-    pos_tx: watch::Sender<(usize, f32)>,
-    total: Arc<parking_lot::Mutex<f32>>,
+    state_tx: watch::Sender<PlayerState>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
     cur_song_tx: watch::Sender<Option<SongId>>,
     cur_song_rx: watch::Receiver<Option<SongId>>,
@@ -153,16 +167,29 @@ async fn player_control(
 
     let mut queue = VecDeque::<SongId>::new();
 
-    // Down below whilst we never have multiple senders for position, the compiler doesnt know that
-    // so here we just take whatever positions come from this mpsc and send them down the single watch
-    // (which cant be cloned).
-    let (position_tx, mut position_rx) = mpsc::channel(1);
-    tokio::spawn(async move {
-        while let Some(position) = position_rx.recv().await {
-            // TODO(emily): Don't unwrap here
-            pos_tx.send(position).unwrap();
-        }
-    });
+    let state_tx = Arc::new(state_tx);
+
+    // Appease compiler by creating an mpsc channel that we use within this loop, and then relay to the
+    // outside watch here.
+    // I think this shouldnt be needed, but the compiler says otherwise
+    // let (position_tx, mut position_rx) = mpsc::channel(1);
+    // let (playing_tx, mut playing_rx) = mpsc::channel(1);
+    // let _handles = vec![
+    //     tokio::spawn(async {
+    //         while let Some(position) = position_rx.recv().await {
+    //             state_tx.send_modify(|state| {
+    //                 (state.sample_rate, state.pos, state.total) = position;
+    //             })
+    //         }
+    //     }),
+    //     tokio::spawn(async {
+    //         while let Some(playing) = playing_rx.recv().await {
+    //             state_tx.send_modify(|state| {
+    //                 state.playing = playing;
+    //             })
+    //         }
+    //     }),
+    // ];
 
     let (finished_signal_tx, mut finished_signal_rx) = mpsc::channel::<()>(1);
 
@@ -170,8 +197,14 @@ async fn player_control(
         select! {
             Some(control) = control_rx.recv() => {
                 match control {
-                    PlayerControl::Pause => sink.lock().await.pause(),
-                    PlayerControl::Resume => sink.lock().await.play(),
+                    PlayerControl::Pause => {
+                        sink.lock().await.pause();
+                        state_tx.send_modify(|state| { state.playing = Playing::Paused; });
+                    },
+                    PlayerControl::Resume => {
+                        sink.lock().await.play();
+                        state_tx.send_modify(|state| { state.playing = Playing::Playing; });
+                    },
                     PlayerControl::SkipAll => reset_sink().await,
                     PlayerControl::SkipOne => {
                         if let Some(queued_song) = queue.pop_front() {
@@ -199,10 +232,17 @@ async fn player_control(
 
                             match HlsDecoder::new(chunk_rx, &finished_signal_tx).await {
                                 Ok(decoder) => {
-                                    let position_tx = position_tx.clone();
+                                    let state_tx = state_tx.clone();
                                     let periodic =
                                         decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
-                                            position_tx.try_send((decoder.samples(), total.clone())).unwrap();
+                                            state_tx.send_modify(|state| {
+                                                state.playing = Playing::Playing;
+                                                (state.sample_rate, state.pos, state.total) = (
+                                                    decoder.sample_rate() as usize,
+                                                    decoder.samples(),
+                                                    total.clone(),
+                                                );
+                                            });
                                         });
                                     let sink = sink.lock().await;
                                     sink.append(periodic);

@@ -1,11 +1,6 @@
 use eyre::{eyre, Result};
-use futures::{Future};
-use std::{
-    cmp,
-    collections::{HashMap},
-    fmt::Debug,
-    sync::Arc,
-};
+use futures::Future;
+use std::{cmp, collections::HashMap, fmt::Debug, sync::Arc};
 use tokio::sync::{Mutex, RwLock};
 
 pub struct Cache<K, V> {
