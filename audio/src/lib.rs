@@ -276,67 +276,7 @@ impl Inner {
             }
             PlayerControl::SkipAll => self.reset_sink().await,
             PlayerControl::SkipOne => {
-                if let Some(queued_song) = self.queue.pop_front() {
-                    // Resend the updated queue
-                    self.queued_song_tx.send_modify(|queue| {
-                        queue.pop_front();
-                    });
-
-                    // Ask for the playlist AOT
-                    let playlist = self.downloader.media_playlist(queued_song).await.unwrap();
-
-                    // Calculate the total length of the track
-                    let total = playlist.segments.iter().map(|x| x.duration).sum::<f32>();
-
-                    // Reset sink
-                    self.reset_sink().await;
-                    // If we got a finished signal then consume it
-                    finished_signal_rx
-                        .try_recv()
-                        .map(|_| info!("Consumed a finished signal"))
-                        .unwrap_or_else(|_| {
-                            info!("No finished signal to consume");
-                            ()
-                        });
-                    // Tell everyone that we are playing a new track
-                    self.cur_song_tx.send(Some(queued_song)).unwrap();
-
-                    let chunk_rx = self.download_hls_segments(playlist).await;
-
-                    match HlsDecoder::new(chunk_rx, &self.finished_signal_tx).await {
-                        Ok(decoder) => {
-                            let state_tx = self.state_tx.clone();
-                            let periodic = decoder.periodic_access(
-                                time::Duration::from_millis(100),
-                                move |decoder| {
-                                    state_tx.send_modify(|state| {
-                                        state.playing = Playing::Playing;
-                                        (state.sample_rate, state.pos, state.total) = (
-                                            decoder.sample_rate() as usize,
-                                            decoder.samples(),
-                                            total.clone(),
-                                        );
-                                    });
-                                },
-                            );
-
-                            let sink = self.sink().await;
-                            sink.append(periodic);
-                            sink.play();
-                        }
-                        Err(err) => {
-                            warn!("Failed to get first chunks of HlsDecoder {:?}", err);
-                            self.loop_control_tx
-                                .send(PlayerControl::SkipOne)
-                                .await
-                                .unwrap();
-                        }
-                    }
-                } else {
-                    // Nothing in queue so reset sink and inform everyone
-                    self.reset_sink().await;
-                    self.cur_song_tx.send(None).unwrap();
-                }
+                self.skip_one(finished_signal_rx).await;
             }
             PlayerControl::Queue(id) => {
                 info!("Queuing track");
@@ -362,6 +302,68 @@ impl Inner {
             }
             PlayerControl::Volume(_) => todo!(),
             PlayerControl::Seek(_) => todo!(),
+        }
+    }
+
+    async fn skip_one(&mut self, finished_signal_rx: &mut mpsc::Receiver<()>) {
+        if let Some(queued_song) = self.queue.pop_front() {
+            // Resend the updated queue
+            self.queued_song_tx.send_modify(|queue| {
+                queue.pop_front();
+            });
+
+            // Ask for the playlist AOT
+            let playlist = self.downloader.media_playlist(queued_song).await.unwrap();
+
+            // Calculate the total length of the track
+            let total = playlist.segments.iter().map(|x| x.duration).sum::<f32>();
+
+            // Reset sink
+            self.reset_sink().await;
+            // If we got a finished signal then consume it
+            finished_signal_rx
+                .try_recv()
+                .map(|_| info!("Consumed a finished signal"))
+                .unwrap_or_else(|_| {
+                    info!("No finished signal to consume");
+                    ()
+                });
+            // Tell everyone that we are playing a new track
+            self.cur_song_tx.send(Some(queued_song)).unwrap();
+
+            let chunk_rx = self.download_hls_segments(playlist).await;
+
+            match HlsDecoder::new(chunk_rx, &self.finished_signal_tx).await {
+                Ok(decoder) => {
+                    let state_tx = self.state_tx.clone();
+                    let periodic =
+                        decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                            state_tx.send_modify(|state| {
+                                state.playing = Playing::Playing;
+                                (state.sample_rate, state.pos, state.total) = (
+                                    decoder.sample_rate() as usize,
+                                    decoder.samples(),
+                                    total.clone(),
+                                );
+                            });
+                        });
+
+                    let sink = self.sink().await;
+                    sink.append(periodic);
+                    sink.play();
+                }
+                Err(err) => {
+                    warn!("Failed to get first chunks of HlsDecoder {:?}", err);
+                    self.loop_control_tx
+                        .send(PlayerControl::SkipOne)
+                        .await
+                        .unwrap();
+                }
+            }
+        } else {
+            // Nothing in queue so reset sink and inform everyone
+            self.reset_sink().await;
+            self.cur_song_tx.send(None).unwrap();
         }
     }
 
