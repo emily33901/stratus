@@ -379,7 +379,7 @@ impl Inner {
 
         // Buffer bound here is how many chunks ahead we download before waiting for them
         // to get played. On average a chunk is ~1 second.
-        let (tx_chunk, rx_chunk) = mpsc::channel(10);
+        let (tx_chunk, rx_chunk) = mpsc::channel(5);
         let downloader = self.downloader.clone();
 
         tokio::spawn(async move {

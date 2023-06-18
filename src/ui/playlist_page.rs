@@ -24,27 +24,24 @@ impl PlaylistPage {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let mut column = widget::column!().spacing(40);
-
-        column = column
-            .push(
+        let mut column = widget::column!(
+            widget::row!(
                 widget::text(format!(
                     "{} ({} tracks)",
                     self.song_list.title(),
                     self.song_list.playlist().songs.len()
                 ))
-                .size(40),
+                .size(40)
+                .width(iced::Length::FillPortion(3)),
+                widget::text_input("Search...", &self.filter_text)
+                    .size(20)
+                    .on_input(Message::PlaylistFilterChange)
+                    .width(iced::Length::FillPortion(2)),
             )
-            .push(widget::button(widget::text("Queue playlist")).on_press(Message::QueuePlaylist));
-
-        // column = column.push(Text::new(playlist.).size(20)));
-        // Filter by the filter string
-        column = column.push(
-            widget::text_input("Search...", &self.filter_text)
-                .size(20)
-                .on_input(Message::PlaylistFilterChange)
-                .padding(10),
-        );
+            .padding(10),
+            widget::button(widget::text("Queue playlist")).on_press(Message::QueuePlaylist),
+        )
+        .spacing(40);
 
         column = column.push(self.song_list.view());
 
