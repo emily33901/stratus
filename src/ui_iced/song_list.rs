@@ -52,25 +52,30 @@ impl SongList {
     pub fn view(&self) -> Element<Message> {
         let mut column = widget::column!();
 
-        for song in self
+        // TODO(emily): Ideally, dont collect here, only to throw it away.
+        // We collect right now to determine how many songs are actually going to be displayed
+        // in total.
+        let displayed_songs: Vec<(usize, &SongHolder)> = self
             .song_list
             .values()
             .filter(|song| song.display == Display::Show)
             .enumerate()
-            .map(|(i, song)| {
-                let song_list_len = self.song_list.len() as f32;
+            .collect();
 
-                let song_pos = i as f32 / song_list_len as f32;
-                // TODO(emily): This 0.05 needs to have some relation to how many things
-                // can actually fit on the screen.
-                // for now just scale with how many things exist in the list
-                if (song_pos - self.scroll_pos).abs() < (10 as f32 / song_list_len as f32) {
-                    Some(song)
-                } else {
-                    None
-                }
-            })
-        {
+        let total_len = displayed_songs.len() as f32;
+
+        for song in displayed_songs.into_iter().map(|(i, song)| {
+            // TODO(emily): This isnt necessarily true, for example, if we have a filter.
+            let song_pos = i as f32 / total_len as f32;
+            // TODO(emily): This 0.05 needs to have some relation to how many things
+            // can actually fit on the screen.
+            // for now just scale with how many things exist in the list
+            if (song_pos - self.scroll_pos).abs() < (10 as f32 / total_len as f32) {
+                Some(song)
+            } else {
+                None
+            }
+        }) {
             match song {
                 Some(song) => column = column.push(song.song.view()),
                 // TODO(emily): Get this from the song element
@@ -100,7 +105,7 @@ impl SongList {
             })
             .collect();
 
-        if str.len() < 2 {
+        if str.len() < 1 {
             Command::perform(
                 async move {
                     song_list
