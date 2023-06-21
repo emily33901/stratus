@@ -29,6 +29,7 @@ pub struct SongHolder {
 pub struct SongList {
     song_list: HashMap<model::Id, SongHolder>,
     playlist: Arc<model::Playlist>,
+    scroll_pos: f32,
 }
 
 impl SongList {
@@ -44,6 +45,7 @@ impl SongList {
                 )
             })),
             playlist,
+            scroll_pos: 0.0,
         }
     }
 
@@ -54,11 +56,31 @@ impl SongList {
             .song_list
             .values()
             .filter(|song| song.display == Display::Show)
+            .enumerate()
+            .map(|(i, song)| {
+                let song_list_len = self.song_list.len() as f32;
+
+                let song_pos = i as f32 / song_list_len as f32;
+                // TODO(emily): This 0.05 needs to have some relation to how many things
+                // can actually fit on the screen.
+                // for now just scale with how many things exist in the list
+                if (song_pos - self.scroll_pos).abs() < (10 as f32 / song_list_len as f32) {
+                    Some(song)
+                } else {
+                    None
+                }
+            })
         {
-            column = column.push(song.song.view())
+            match song {
+                Some(song) => column = column.push(song.song.view()),
+                // TODO(emily): Get this from the song element
+                None => column = column.push(widget::column!().height(150.0)),
+            };
         }
 
-        column.spacing(20).into()
+        widget::scrollable(column.spacing(20))
+            .on_scroll(|ro| Message::PageScroll(ro.y))
+            .into()
     }
 
     pub fn update_filter(&mut self, str: &str) -> Command<Message> {
@@ -111,46 +133,6 @@ impl SongList {
         }
     }
 
-    // pub fn song_loaded(
-    //     &mut self,
-    //     song: Arc<model::Song>,
-    // ) -> Command<Message> {
-    //     self.song_list.insert(
-    //         song.id,
-    //         SongHolder {
-    //             song: Some(Song::new(song.clone(), image_cache.clone())),
-    //             display: Display::Show,
-    //         },
-    //     );
-
-    //     let object = song.user.clone();
-    //     let user_cache = user_cache.clone();
-    //     Command::perform(
-    //         async move {
-    //             user_cache.try_get(&object);
-    //         },
-    //         Message::None,
-    //     )
-    // }
-
-    // pub fn user_loaded(
-    //     &mut self,
-    //     user: &Arc<model::User>,
-    //     _image_cache: &Arc<ImageCache>,
-    // ) -> Command<Message> {
-    //     for song in self
-    //         .song_list
-    //         .values_mut()
-    //         .filter_map(|holder| holder.song.as_mut())
-    //     {
-    //         if song.user_id() == user.object.id {
-    //             song.user = Some(user.clone());
-    //         }
-    //     }
-
-    //     Command::none()
-    // }
-
     pub fn models(&self) -> impl Iterator<Item = &'_ Song> {
         self.song_list.values().map(|h| &h.song)
     }
@@ -174,5 +156,19 @@ impl SongList {
         }
 
         Command::none()
+    }
+
+    pub(crate) fn page_changed(&mut self, amount: isize) {
+        // let mut new_amount = self.cur_page as isize + amount;
+        // if new_amount < 0 {
+        // new_amount = 0;
+        // }
+
+        // self.cur_page = new_amount as usize;
+    }
+
+    pub(crate) fn page_scroll(&mut self, amount: f32) {
+        self.scroll_pos = amount;
+        // do something
     }
 }

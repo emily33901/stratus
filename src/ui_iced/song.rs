@@ -17,7 +17,7 @@ impl Song {
         {
             if let Some(image) = &self.song.artwork {
                 widget::row!(
-                    widget::image::Image::new(image.as_ref().clone()).width(Length::Fixed(100.0))
+                    widget::image::Image::new(image.as_ref().clone()).width(Length::Fixed(150.0))
                 )
             } else {
                 widget::row!()

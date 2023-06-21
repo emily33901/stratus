@@ -1,7 +1,7 @@
 [package]
 name = "stratus"
 version = "0.1.0"
-authors = ["Emily Hudson <emily33901@gmail.com>"]
+authors = ["Emily Hudson <gh@emily.mozmail.com>"]
 edition = "2021"
 publish = false
 
@@ -24,7 +24,7 @@ iced_native = "*"
 iced_core = "*"
 iced_style = "*"
 log = "0.4"
-fern = "0.5"
+fern = "0.6"
 image = "0.23.14"
 static_assertions = "1.1.0"
 audio = { path = "./audio" }
@@ -35,6 +35,9 @@ backoff = { version = "0.3", features = ["tokio"] }
 ellipse = "0.2.0"
 console-subscriber = "*"
 arc-swap = "1.6.0"
+poll-promise = "0.2.0"
+eframe = "0.22.0"
+regex = { version = "1.8.4", features = ["unicode-case"] }
 
 [profile.release]
 debug = true

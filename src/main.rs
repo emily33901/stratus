@@ -1,12 +1,17 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+
 mod cache;
+mod downloader;
 mod model;
 mod sc;
-mod ui;
+mod ui_egui;
+mod ui_iced;
 
-use eyre::Result;
+use std::error::Error;
+
 use iced::Application;
 
-fn main() -> Result<()> {
+fn main() -> std::result::Result<(), Box<dyn Error>> {
     console_subscriber::init();
 
     std::panic::set_hook(Box::new(|x| log::error!("Panic {x}")));
@@ -21,13 +26,21 @@ fn main() -> Result<()> {
             ))
         })
         .level(log::LevelFilter::Info)
-        .chain(std::io::stdout())
-        .chain(fern::log_file("output.log")?)
+        .chain(std::io::stderr())
         .apply()?;
 
-    let options: iced::Settings<()> = iced::Settings {
-        ..Default::default()
-    };
+    if true {
+        let options: iced::Settings<()> = iced::Settings {
+            ..Default::default()
+        };
 
-    Ok(ui::App::run(options)?)
+        Ok(ui_iced::App::run(options)?)
+    } else {
+        let options = eframe::NativeOptions::default();
+        Ok(eframe::run_native(
+            "Stratus",
+            options,
+            Box::new(|_cc| Box::<ui_egui::App>::default()),
+        )?)
+    }
 }

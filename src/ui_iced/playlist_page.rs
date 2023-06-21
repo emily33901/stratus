@@ -11,6 +11,7 @@ use super::app::Message;
 use super::song_list::SongList;
 
 pub struct PlaylistPage {
+    pub playlist: Arc<model::Playlist>,
     pub song_list: SongList,
     pub filter_text: String,
 }
@@ -18,6 +19,7 @@ pub struct PlaylistPage {
 impl PlaylistPage {
     pub fn new(playlist: Arc<model::Playlist>) -> Self {
         Self {
+            playlist: playlist.clone(),
             song_list: SongList::new(playlist),
             filter_text: Default::default(),
         }
@@ -56,5 +58,13 @@ impl PlaylistPage {
 
     pub fn songs(&self) -> impl Iterator<Item = &'_ Arc<model::Song>> + '_ {
         self.song_list.models().map(|s| s.song())
+    }
+
+    pub(crate) fn page_changed(&mut self, amount: isize) {
+        self.song_list.page_changed(amount);
+    }
+
+    pub(crate) fn page_scroll(&mut self, amount: f32) {
+        self.song_list.page_scroll(amount);
     }
 }

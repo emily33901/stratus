@@ -1,6 +1,8 @@
 use audio::HlsPlayer;
 use futures::stream::BoxStream;
 
+use crate::downloader;
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -16,7 +18,6 @@ use super::song_list::Display;
 use super::user_page::UserPage;
 use crate::model::{self, Store};
 
-mod downloader;
 enum Page {
     Main,
     Playlist(PlaylistPage),
@@ -35,9 +36,6 @@ pub struct App {
     store: Arc<model::Store>,
 
     player: Arc<audio::HlsPlayer>,
-    player_time: f32,
-    total_time: f32,
-    // queue: VecDeque<audio::TrackId>,
     controls: ControlsElement,
 }
 
@@ -51,8 +49,6 @@ impl App {
             page: Default::default(),
             store,
             player,
-            player_time: Default::default(),
-            total_time: Default::default(),
             controls: ControlsElement::new(),
             // queue: Default::default(),
         };
@@ -79,6 +75,8 @@ pub enum Message {
     PlaylistClicked(Arc<model::Playlist>),
     SongQueue(Arc<model::Song>),
     PlaylistFilterChange(String),
+    PageChange(isize),
+    PageScroll(f32),
     QueuePlaylist,
     Resume,
     Pause,
@@ -222,6 +220,24 @@ impl Application for App {
                 self.controls.set_cur_song(song);
                 Command::none()
             }
+
+            Message::PageChange(amount) => {
+                match &mut self.page {
+                    Page::Main => todo!(),
+                    Page::Playlist(playlist_page) => playlist_page.page_changed(amount),
+                    Page::User(_) => todo!(),
+                };
+
+                Command::none()
+            }
+            Message::PageScroll(amount) => {
+                match &mut self.page {
+                    Page::Main => todo!(),
+                    Page::Playlist(playlist) => playlist.page_scroll(amount),
+                    Page::User(_) => todo!(),
+                };
+                Command::none()
+            }
         }
     }
 
@@ -238,14 +254,12 @@ impl Application for App {
         widget::container(
             widget::column!()
                 .push(
-                    widget::scrollable(
-                        widget::container(match &self.page {
-                            Page::Main => widget::text("Main page").into(),
-                            Page::Playlist(playlist_page) => playlist_page.view(),
-                            Page::User(user_page) => user_page.view(),
-                        })
-                        .padding(40),
-                    )
+                    widget::container(match &self.page {
+                        Page::Main => widget::text("Main page").into(),
+                        Page::Playlist(playlist_page) => playlist_page.view(),
+                        Page::User(user_page) => user_page.view(),
+                    })
+                    .padding(40)
                     .height(iced::Length::FillPortion(1)),
                 )
                 .push({
