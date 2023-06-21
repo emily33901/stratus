@@ -162,6 +162,10 @@ impl HlsPlayer {
     pub fn cur_song(&self) -> watch::Receiver<Option<SongId>> {
         self.cur_song.clone()
     }
+
+    pub async fn volume(&self, volume: f32) -> Result<()> {
+        Ok(self.control.send(PlayerControl::Volume(volume)).await?)
+    }
 }
 
 struct SinkStream {
@@ -300,7 +304,7 @@ impl Inner {
                     });
                 }
             }
-            PlayerControl::Volume(_) => todo!(),
+            PlayerControl::Volume(volume) => self.sink().await.set_volume(volume),
             PlayerControl::Seek(_) => todo!(),
         }
     }
@@ -334,10 +338,10 @@ impl Inner {
             let chunk_rx = self.download_hls_segments(playlist).await;
 
             match HlsDecoder::new(chunk_rx, &self.finished_signal_tx).await {
-                Ok(decoder) => {
+                Ok(source) => {
                     let state_tx = self.state_tx.clone();
-                    let periodic =
-                        decoder.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                    let source =
+                        source.periodic_access(time::Duration::from_millis(100), move |decoder| {
                             state_tx.send_modify(|state| {
                                 state.playing = Playing::Playing;
                                 (state.sample_rate, state.pos, state.total) = (
@@ -349,7 +353,7 @@ impl Inner {
                         });
 
                     let sink = self.sink().await;
-                    sink.append(periodic);
+                    sink.append(source);
                     sink.play();
                 }
                 Err(err) => {

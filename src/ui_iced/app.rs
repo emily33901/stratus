@@ -77,6 +77,7 @@ pub enum Message {
     PlaylistFilterChange(String),
     PageChange(isize),
     PageScroll(f32),
+    VolumeChange(f32),
     QueuePlaylist,
     Resume,
     Pause,
@@ -238,6 +239,14 @@ impl Application for App {
                 };
                 Command::none()
             }
+            Message::VolumeChange(volume) => {
+                self.controls.volume_changed(volume);
+                let player = self.player.clone();
+                Command::perform(
+                    async move { player.volume(volume).await.unwrap() },
+                    Message::None,
+                )
+            }
         }
     }
 
@@ -251,21 +260,15 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<Self::Message> {
-        widget::container(
-            widget::column!()
-                .push(
-                    widget::container(match &self.page {
-                        Page::Main => widget::text("Main page").into(),
-                        Page::Playlist(playlist_page) => playlist_page.view(),
-                        Page::User(user_page) => user_page.view(),
-                    })
-                    .height(iced::Length::FillPortion(1)),
-                )
-                .push(widget::column!(
-                    widget::row!().height(20),
-                    self.controls.view()
-                )),
-        )
+        widget::container(widget::column!(
+            widget::container(match &self.page {
+                Page::Main => widget::text("Main page").into(),
+                Page::Playlist(playlist_page) => playlist_page.view(),
+                Page::User(user_page) => user_page.view(),
+            })
+            .height(iced::Length::FillPortion(1)),
+            widget::column!(widget::row!().height(20), self.controls.view())
+        ))
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
         .center_x()
