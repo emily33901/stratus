@@ -84,7 +84,7 @@ impl SongList {
         }
 
         widget::scrollable(column.spacing(20))
-            .on_scroll(|ro| Message::PageScroll(ro.y))
+            .on_scroll(|ro| Message::PageScroll(ro.relative_offset().y))
             .into()
     }
 

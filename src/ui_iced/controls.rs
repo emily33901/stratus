@@ -58,7 +58,6 @@ impl ControlsElement {
 
         iced::widget::row!(
             play_pause,
-            iced::widget::button(iced::widget::text("skip")).on_press(Message::Skip),
             iced::widget::text(format!("{:.1}", location.as_secs_f32())),
             iced::widget::slider(
                 RangeInclusive::new(0.0, total.as_secs_f64()),
@@ -73,12 +72,13 @@ impl ControlsElement {
                 .as_ref()
             {
                 iced::widget::container(
-                    iced::widget::Image::new(artwork.as_ref().clone()).height(Length::Fixed(120.0)),
+                    iced::widget::Image::new(artwork.as_ref().clone()).height(Length::Fixed(40.0)),
                 )
             } else {
                 iced::widget::container(iced::widget::text(""))
             },
-            queue
+            queue,
+            iced::widget::button(iced::widget::text("skip")).on_press(Message::Skip),
         )
         .align_items(iced::Alignment::Center)
         .spacing(20)

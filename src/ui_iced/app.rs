@@ -259,19 +259,18 @@ impl Application for App {
                         Page::Playlist(playlist_page) => playlist_page.view(),
                         Page::User(user_page) => user_page.view(),
                     })
-                    .padding(40)
                     .height(iced::Length::FillPortion(1)),
                 )
-                .push({
-                    widget::container(self.controls.view())
-                        .height(iced::Length::Fixed(80.0))
-                        .padding(iced::Padding::new(20.0))
-                }),
+                .push(widget::column!(
+                    widget::row!().height(20),
+                    self.controls.view()
+                )),
         )
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
         .center_x()
         .center_y()
+        .padding(20)
         .into()
     }
     fn theme(&self) -> Self::Theme {
@@ -357,21 +356,23 @@ fn watch_subscription<T: 'static + std::fmt::Debug + Clone + Send + Sync>(
 #[derive(Clone)]
 struct WatchRecipe<T>(String, watch::Receiver<T>);
 
-impl<T, H, Event> iced::subscription::Recipe<H, Event> for WatchRecipe<T>
+impl<T> iced::advanced::subscription::Recipe for WatchRecipe<T>
 where
-    H: std::hash::Hasher,
     T: 'static + std::fmt::Debug + Clone + Send + Sync,
 {
     type Output = T;
 
-    fn hash(&self, state: &mut H) {
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
         use std::hash::Hash;
 
         self.0.hash(state);
         std::any::TypeId::of::<Self>().hash(state);
     }
 
-    fn stream(self: Box<Self>, _input: BoxStream<Event>) -> BoxStream<Self::Output> {
+    fn stream(
+        self: Box<Self>,
+        _input: iced::advanced::subscription::EventStream,
+    ) -> BoxStream<'static, Self::Output> {
         Box::pin(futures::stream::unfold(self, |mut state| async move {
             // Wait for watcher to change then produce a value
             state.1.changed().await.map_or(None, |_| {
