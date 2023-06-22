@@ -77,9 +77,8 @@ impl SongList {
         let total_len = displayed_songs.len() as f32;
 
         for song in displayed_songs.into_iter().enumerate().map(|(i, song)| {
-            // TODO(emily): This isnt necessarily true, for example, if we have a filter.
             let song_pos = i as f32 / total_len as f32;
-            // TODO(emily): This 0.05 needs to have some relation to how many things
+            // TODO(emily): This '10' needs to have some relation to how many things
             // can actually fit on the screen.
             // for now just scale with how many things exist in the list
             if (song_pos - self.scroll_pos).abs() < (10 as f32 / total_len as f32) {
