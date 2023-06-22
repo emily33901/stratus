@@ -1,6 +1,7 @@
 mod app;
 mod controls;
 mod main_page;
+mod navigation;
 mod queue;
 mod song;
 mod song_list;

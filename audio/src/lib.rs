@@ -172,6 +172,7 @@ struct SinkStream {
     sink: rodio::Sink,
     stream: rodio::OutputStream,
     handle: rodio::OutputStreamHandle,
+    volume: f32,
 }
 
 impl SinkStream {
@@ -183,15 +184,22 @@ impl SinkStream {
             sink: new_sink,
             stream: new_stream,
             handle: new_handle,
+            volume: 1.0,
         }
     }
 
     fn reset(&mut self) {
         let (new_stream, new_handle) = rodio::OutputStream::try_default().unwrap();
         let new_sink = rodio::Sink::try_new(&new_handle).unwrap();
+        new_sink.set_volume(self.volume);
         self.sink = new_sink;
         self.stream = new_stream;
         self.handle = new_handle;
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+        self.sink.set_volume(volume);
     }
 }
 
@@ -304,7 +312,7 @@ impl Inner {
                     });
                 }
             }
-            PlayerControl::Volume(volume) => self.sink().await.set_volume(volume),
+            PlayerControl::Volume(volume) => self.sink_stream.lock().await.set_volume(volume),
             PlayerControl::Seek(_) => todo!(),
         }
     }
@@ -332,6 +340,7 @@ impl Inner {
                     info!("No finished signal to consume");
                     ()
                 });
+
             // Tell everyone that we are playing a new track
             self.cur_song_tx.send(Some(queued_song)).unwrap();
 

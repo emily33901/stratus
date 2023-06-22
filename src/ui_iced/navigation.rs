@@ -1,0 +1,3 @@
+struct Navigation {}
+
+impl Navigation {}

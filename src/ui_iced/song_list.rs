@@ -7,17 +7,18 @@ use iced::Element;
 
 use crate::model;
 
+use super::song;
 use super::{app::Message, song::Song};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum Display {
-    Show,
+    Show(i64),
     Hidden,
 }
 
 impl Default for Display {
     fn default() -> Self {
-        Self::Show
+        Self::Show(100)
     }
 }
 
@@ -40,7 +41,7 @@ impl SongList {
                     song.id,
                     SongHolder {
                         song: Song::new(song.clone()),
-                        display: Display::Show,
+                        display: Display::default(),
                     },
                 )
             })),
@@ -55,16 +56,27 @@ impl SongList {
         // TODO(emily): Ideally, dont collect here, only to throw it away.
         // We collect right now to determine how many songs are actually going to be displayed
         // in total.
-        let displayed_songs: Vec<(usize, &SongHolder)> = self
+        let mut displayed_songs: Vec<&SongHolder> = self
             .song_list
             .values()
-            .filter(|song| song.display == Display::Show)
-            .enumerate()
+            .filter_map(|song| {
+                if let Display::Hidden = song.display {
+                    None
+                } else {
+                    Some(song)
+                }
+            })
             .collect();
+
+        displayed_songs.sort_by_cached_key(|song| {
+            // At this point there should only be shown songs
+            let Display::Show(score) = song.display else { panic!() };
+            0 - score
+        });
 
         let total_len = displayed_songs.len() as f32;
 
-        for song in displayed_songs.into_iter().map(|(i, song)| {
+        for song in displayed_songs.into_iter().enumerate().map(|(i, song)| {
             // TODO(emily): This isnt necessarily true, for example, if we have a filter.
             let song_pos = i as f32 / total_len as f32;
             // TODO(emily): This 0.05 needs to have some relation to how many things
@@ -78,7 +90,7 @@ impl SongList {
         }) {
             match song {
                 Some(song) => column = column.push(song.song.view()),
-                // TODO(emily): Get this from the song element
+                // TODO(emily): Get this height from the song element
                 None => column = column.push(widget::column!().height(150.0)),
             };
         }
@@ -110,7 +122,7 @@ impl SongList {
                 async move {
                     song_list
                         .iter()
-                        .map(|(k, _v)| (k.clone(), Display::Show))
+                        .map(|(k, _v)| (k.clone(), Display::default()))
                         .collect()
                 },
                 Message::SongListFilterComputed,
@@ -127,7 +139,10 @@ impl SongList {
                                 if title_score.is_none() && username_score.is_none() {
                                     Display::Hidden
                                 } else {
-                                    Display::Show
+                                    Display::Show(
+                                        title_score.unwrap_or_default()
+                                            + username_score.unwrap_or_default(),
+                                    )
                                 }
                             })
                         })
