@@ -24,7 +24,13 @@ impl ControlsElement {
     pub fn queue_changed(&mut self, queue: &[Arc<model::Song>]) -> iced::Command<Message> {
         self.options = queue
             .iter()
-            .map(|s| s.title.as_str().truncate_ellipse(30).into())
+            .map(|s| {
+                format!(
+                    "{} | {}",
+                    s.user.username.as_str().truncate_ellipse(15),
+                    s.title.as_str().truncate_ellipse(15)
+                )
+            })
             .collect();
 
         Command::none()
@@ -37,7 +43,9 @@ impl ControlsElement {
     pub fn view(&self) -> Element<Message> {
         let queue = widget::container(widget::pick_list(
             &self.options,
-            self.cur_song.as_ref().map(|s| s.title.clone()),
+            self.cur_song
+                .as_ref()
+                .map(|s| format!("{} | {}", s.user.username, s.title)),
             |_x| Message::none(),
         ));
 

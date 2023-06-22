@@ -314,7 +314,7 @@ pub mod api {
 
             let endpoint = Endpoint {
                 endpoint: format!("users/{}/track_likes", self.object.id),
-                params: Some(vec![("limit".into(), "2000".into())]),
+                params: Some(vec![("limit".into(), "8000".into())]),
             };
 
             let likes: Likes = object(client, endpoint).await?;

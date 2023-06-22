@@ -69,8 +69,8 @@ impl SongList {
             .collect();
 
         displayed_songs.sort_by_cached_key(|song| {
-            // At this point there should only be shown songs
-            let Display::Show(score) = song.display else { panic!() };
+            // Safety: All Display::Hidden songs are removed beforehand
+            let Display::Show(score) = song.display else { unsafe { std::hint::unreachable_unchecked()} };
             0 - score
         });
 

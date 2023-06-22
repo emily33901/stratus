@@ -31,7 +31,8 @@ impl Default for Page {
 }
 
 pub struct App {
-    page: Page,
+    navigation: VecDeque<Page>,
+    cur_page_index: usize,
 
     store: Arc<model::Store>,
 
@@ -45,15 +46,35 @@ impl App {
             store.clone(),
         ))));
 
+        let navigation = vec![Page::default()].into();
+
         let zelf = Self {
-            page: Default::default(),
+            navigation,
             store,
             player,
             controls: ControlsElement::new(),
-            // queue: Default::default(),
+            cur_page_index: 0,
         };
 
         zelf
+    }
+
+    fn push_page(&mut self, page: Page) {
+        // Check what cur_page is and truncate the navigation vec back to there
+        if self.cur_page_index < self.navigation.len() - 1 {
+            self.navigation.truncate(self.cur_page_index + 1)
+        }
+
+        self.navigation.push_back(page);
+        self.cur_page_index += 1;
+    }
+
+    fn page_mut(&mut self) -> &mut Page {
+        &mut self.navigation[self.cur_page_index]
+    }
+
+    fn page(&self) -> &Page {
+        &self.navigation[self.cur_page_index]
     }
 }
 
@@ -78,6 +99,8 @@ pub enum Message {
     PageChange(isize),
     PageScroll(f32),
     VolumeChange(f32),
+    NavigateForward,
+    NavigateBack,
     QueuePlaylist,
     Resume,
     Pause,
@@ -193,17 +216,19 @@ impl Application for App {
             Message::UserClicked(user) => {
                 info!("User clicked");
 
-                self.page = Page::User(UserPage::new(user.clone(), &self.store));
+                self.push_page(Page::User(UserPage::new(user.clone(), &self.store)));
 
-                // Command::perform(
-                //     async move { user.songs().await.unwrap() },
-                //     Message::PlaylistLoaded,
-                // )
+                let store = self.store.clone();
 
-                Command::none()
+                // TODO(emily): These Pages should eb components and then they cn make these requests on their own
+                // without us having to do this GARBAGE here.
+                Command::perform(
+                    async move { store.likes(&user.id).await.unwrap() },
+                    Message::PlaylistResolved,
+                )
             }
             Message::PlaylistClicked(playlist) => {
-                self.page = Page::Playlist(PlaylistPage::new(playlist));
+                self.push_page(Page::Playlist(PlaylistPage::new(playlist)));
                 Command::none()
             }
             Message::SongListFilterComputed(computed) => self.song_list_filter_computed(&computed),
@@ -223,7 +248,7 @@ impl Application for App {
             }
 
             Message::PageChange(amount) => {
-                match &mut self.page {
+                match self.page_mut() {
                     Page::Main => todo!(),
                     Page::Playlist(playlist_page) => playlist_page.page_changed(amount),
                     Page::User(_) => todo!(),
@@ -232,10 +257,10 @@ impl Application for App {
                 Command::none()
             }
             Message::PageScroll(amount) => {
-                match &mut self.page {
+                match self.page_mut() {
                     Page::Main => todo!(),
                     Page::Playlist(playlist) => playlist.page_scroll(amount),
-                    Page::User(_) => todo!(),
+                    Page::User(user) => user.page_scroll(amount),
                 };
                 Command::none()
             }
@@ -246,6 +271,17 @@ impl Application for App {
                     async move { player.volume(volume).await.unwrap() },
                     Message::None,
                 )
+            }
+            Message::NavigateBack => {
+                self.cur_page_index = self.cur_page_index.saturating_sub(1);
+                Command::none()
+            }
+            Message::NavigateForward => {
+                self.cur_page_index = self.cur_page_index.saturating_add(1);
+                if self.cur_page_index >= self.navigation.len() {
+                    self.cur_page_index = self.navigation.len() - 1
+                }
+                Command::none()
             }
         }
     }
@@ -261,7 +297,11 @@ impl Application for App {
 
     fn view(&self) -> Element<Self::Message> {
         widget::container(widget::column!(
-            widget::container(match &self.page {
+            widget::row!(
+                widget::button(widget::text("<")).on_press(Message::NavigateBack),
+                widget::button(widget::text(">")).on_press(Message::NavigateForward)
+            ),
+            widget::container(match self.page() {
                 Page::Main => widget::text("Main page").into(),
                 Page::Playlist(playlist_page) => playlist_page.view(),
                 Page::User(user_page) => user_page.view(),
@@ -286,7 +326,7 @@ impl Application for App {
 impl App {
     fn playlist_loaded(&mut self, playlist: Arc<model::Playlist>) -> Command<Message> {
         info!("Playlist loaded");
-        match &mut self.page {
+        match self.page_mut() {
             Page::Main => todo!(),
             Page::Playlist(_) => todo!(),
             Page::User(page) => page.update_songs(playlist.clone()),
@@ -300,7 +340,7 @@ impl App {
         computed: &HashMap<model::Id, Display>,
     ) -> Command<Message> {
         info!("Filter computed");
-        match &mut self.page {
+        match self.page_mut() {
             Page::Playlist(page) => page.song_list.filter_computed(computed),
             Page::Main => todo!(),
             Page::User(_) => todo!(),
@@ -326,7 +366,7 @@ impl App {
     }
 
     fn playlist_filter_changed(&mut self, string: &str) -> iced::Command<Message> {
-        if let Page::Playlist(page) = &mut self.page {
+        if let Page::Playlist(page) = self.page_mut() {
             page.filter_changed(string)
         } else {
             Command::none()
@@ -334,7 +374,7 @@ impl App {
     }
 
     fn queue_playlist(&mut self) -> iced::Command<Message> {
-        if let Page::Playlist(page) = &self.page {
+        if let Page::Playlist(page) = self.page() {
             let player = self.player.clone();
             let ids = page.songs().map(|s| s.id).collect();
             iced::Command::perform(

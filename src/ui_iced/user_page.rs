@@ -48,4 +48,8 @@ impl UserPage {
     pub fn update_songs(&mut self, songs: Arc<model::Playlist>) {
         self.song_list = Some(SongList::new(songs))
     }
+
+    pub(crate) fn page_scroll(&mut self, amount: f32) {
+        self.song_list.as_mut().map(|l| l.page_scroll(amount));
+    }
 }
