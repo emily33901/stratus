@@ -350,14 +350,11 @@ impl Inner {
                 Ok(source) => {
                     let state_tx = self.state_tx.clone();
                     let source =
-                        source.periodic_access(time::Duration::from_millis(100), move |decoder| {
+                        source.periodic_access(time::Duration::from_millis(100), move |source| {
                             state_tx.send_modify(|state| {
                                 state.playing = Playing::Playing;
-                                (state.sample_rate, state.pos, state.total) = (
-                                    decoder.sample_rate() as usize,
-                                    decoder.samples(),
-                                    total.clone(),
-                                );
+                                (state.sample_rate, state.pos, state.total) =
+                                    (source.sample_rate() as usize, source.samples(), total);
                             });
                         });
 

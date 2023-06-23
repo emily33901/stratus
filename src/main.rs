@@ -30,6 +30,7 @@ fn main() -> std::result::Result<(), Box<dyn Error>> {
 
     if true {
         let options: iced::Settings<()> = iced::Settings {
+            default_text_size: 14.0,
             ..Default::default()
         };
 

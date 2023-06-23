@@ -306,14 +306,14 @@ impl Application for App {
                 Page::Playlist(playlist_page) => playlist_page.view(),
                 Page::User(user_page) => user_page.view(),
             })
+            .padding(10)
             .height(iced::Length::FillPortion(1)),
-            widget::column!(widget::row!().height(20), self.controls.view())
+            widget::container(self.controls.view()).padding(10),
         ))
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
         .center_x()
         .center_y()
-        .padding(20)
         .into()
     }
     fn theme(&self) -> Self::Theme {

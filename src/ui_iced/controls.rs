@@ -41,13 +41,13 @@ impl ControlsElement {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let queue = widget::container(widget::pick_list(
-            &self.options,
-            self.cur_song
-                .as_ref()
-                .map(|s| format!("{} | {}", s.user.username, s.title)),
-            |_x| Message::none(),
-        ));
+        // let queue = widget::container(widget::pick_list(
+        //     &self.options,
+        //     self.cur_song
+        //         .as_ref()
+        //         .map(|s| format!("{} | {}", s.user.username, s.title)),
+        //     |_x| Message::none(),
+        // ));
 
         use std::time::Duration;
 
@@ -58,51 +58,87 @@ impl ControlsElement {
         let total = Duration::from_secs_f32(self.player_state.total);
 
         let play_pause = match self.player_state.playing {
-            audio::Playing::Playing => {
-                widget::button(widget::text("pause")).on_press(Message::Pause)
-            }
-            audio::Playing::Paused => {
-                widget::button(widget::text("play")).on_press(Message::Resume)
-            }
+            audio::Playing::Playing => widget::button(widget::text("I I")).on_press(Message::Pause),
+            audio::Playing::Paused => widget::button(widget::text(">")).on_press(Message::Resume),
         };
 
-        widget::row!(
-            play_pause.width(Length::Shrink),
-            widget::row!(
-                widget::text(format!("{:.1}", location.as_secs_f32())),
-                widget::slider(
-                    RangeInclusive::new(0.0, total.as_secs_f64()),
-                    location.as_secs_f64(),
-                    |_| Message::None(()),
-                ),
-                iced::widget::text(format!("{:.1}", total.as_secs_f32())),
+        let artwork = if let Some(artwork) = self
+            .cur_song
+            .as_ref()
+            .and_then(|s| s.artwork.clone())
+            .as_ref()
+        {
+            widget::container(widget::Image::new(artwork.as_ref().clone()))
+        } else {
+            widget::container(widget::row!())
+        }
+        .height(Length::Fixed(75.0))
+        .width(Length::Fixed(75.0));
+
+        let song_title_user = widget::container(widget::column!(
+            widget::text(
+                self.cur_song
+                    .as_ref()
+                    .map(|s| s.title.clone())
+                    .unwrap_or_default()
+            )
+            .size(16),
+            widget::text(
+                self.cur_song
+                    .as_ref()
+                    .map(|s| s.user.username.clone())
+                    .unwrap_or_default()
+            )
+        ));
+
+        let controls = widget::container(
+            widget::column!(
+                widget::row!(
+                    widget::row!().width(Length::FillPortion(1)),
+                    play_pause.width(Length::Shrink),
+                    widget::button(widget::text(">>"))
+                        .on_press(Message::Skip)
+                        .width(Length::Shrink),
+                    widget::row!().width(Length::FillPortion(1)),
+                )
+                .align_items(iced::Alignment::Center)
+                .spacing(20)
+                .width(Length::Fill),
+                widget::row!(
+                    widget::text(format!("{:.1}", location.as_secs_f32())),
+                    widget::slider(
+                        RangeInclusive::new(0.0, total.as_secs_f64()),
+                        location.as_secs_f64(),
+                        |_| Message::None(()),
+                    ),
+                    iced::widget::text(format!("{:.1}", total.as_secs_f32())),
+                )
+                .align_items(iced::Alignment::Center)
+                .spacing(20)
             )
             .align_items(iced::Alignment::Center)
-            .spacing(20)
-            .width(Length::FillPortion(5)),
-            widget::button(widget::text("skip"))
-                .on_press(Message::Skip)
-                .width(Length::Shrink),
-            if let Some(artwork) = self
-                .cur_song
-                .as_ref()
-                .and_then(|s| s.artwork.clone())
-                .as_ref()
-            {
-                widget::container(
-                    widget::Image::new(artwork.as_ref().clone()).height(Length::Fixed(40.0)),
-                )
-            } else {
-                widget::container(widget::text(""))
-            },
-            queue.width(Length::Shrink),
-            widget::slider(RangeInclusive::new(0.0, 100.0), self.volume, |v| {
-                // TODO(emily): This is so stupid, but slider apparently works in increments of 1.0?
-                // So we convert here to be in the correct range (0.0..1.0)
-                Message::VolumeChange(v / 100.0)
-            })
+            .width(Length::Fill),
+        )
+        .width(Length::FillPortion(5));
+
+        widget::row!(
+            widget::row!(artwork, song_title_user)
+                .spacing(20)
+                .width(Length::FillPortion(2))
+                .align_items(iced::Alignment::Center),
+            controls,
+            widget::container(widget::slider(
+                RangeInclusive::new(0.0, 100.0),
+                self.volume,
+                |v| {
+                    // TODO(emily): This is so stupid, but slider apparently works in increments of 1.0?
+                    // So we convert here to be in the correct range (0.0..1.0)
+                    Message::VolumeChange(v / 100.0)
+                }
+            ))
             .width(Length::FillPortion(1))
         )
+        .height(Length::Fixed(75.0))
         .align_items(iced::Alignment::Center)
         .spacing(20)
         .into()
