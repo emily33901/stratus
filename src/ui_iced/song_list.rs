@@ -7,7 +7,7 @@ use iced::Element;
 
 use crate::model;
 
-use super::song;
+
 use super::{app::Message, song::Song};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -177,7 +177,7 @@ impl SongList {
         Command::none()
     }
 
-    pub(crate) fn page_changed(&mut self, amount: isize) {
+    pub(crate) fn page_changed(&mut self, _amount: isize) {
         // let mut new_amount = self.cur_page as isize + amount;
         // if new_amount < 0 {
         // new_amount = 0;

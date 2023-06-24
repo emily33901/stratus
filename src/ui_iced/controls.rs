@@ -2,7 +2,7 @@ use super::app::Message;
 use crate::model::{self};
 use ellipse::Ellipse;
 use iced::{widget, Command, Element, Length};
-use std::{ops::RangeInclusive, sync::Arc, time};
+use std::{ops::RangeInclusive, sync::Arc};
 
 fn format_duration(duration: &std::time::Duration) -> String {
     let secs = duration.as_secs();
