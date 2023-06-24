@@ -291,15 +291,7 @@ impl Application for App {
                 let player = self.player.clone();
                 Command::perform(
                     async move {
-                        player
-                            .looping(match looping {
-                                0 => audio::Looping::LoopOne,
-                                1 => audio::Looping::Loop,
-                                2 => audio::Looping::None,
-                                _ => unreachable!(),
-                            })
-                            .await
-                            .unwrap();
+                        player.looping(looping).await.unwrap();
                     },
                     Message::None,
                 )

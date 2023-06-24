@@ -4,13 +4,25 @@ use ellipse::Ellipse;
 use iced::{widget, Command, Element, Length};
 use std::{ops::RangeInclusive, sync::Arc, time};
 
+fn format_duration(duration: &std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    let hours = secs / 3600;
+    let minutes = secs % 3600 / 60;
+    let seconds = secs % 60;
+
+    if hours == 0 {
+        format!("{minutes}:{seconds:02}")
+    } else {
+        format!("{hours}:{minutes}:{seconds:02}")
+    }
+}
+
 pub struct ControlsElement {
     options: Vec<String>,
     cur_song: Option<Arc<model::Song>>,
     player_state: audio::PlayerState,
     volume: f32,
-    // TODO(emily): Terrible, deranged
-    looping: usize,
+    looping: audio::Looping,
 }
 
 impl ControlsElement {
@@ -20,7 +32,7 @@ impl ControlsElement {
             options: vec![],
             player_state: Default::default(),
             volume: 100.0,
-            looping: 0,
+            looping: audio::Looping::LoopOne,
         }
     }
 
@@ -44,14 +56,6 @@ impl ControlsElement {
     }
 
     pub fn view(&self) -> Element<Message> {
-        // let queue = widget::container(widget::pick_list(
-        //     &self.options,
-        //     self.cur_song
-        //         .as_ref()
-        //         .map(|s| format!("{} | {}", s.user.username, s.title)),
-        //     |_x| Message::none(),
-        // ));
-
         use std::time::Duration;
 
         // TODO(emily): Conversion to (and then from, litterally moments later) Duration here are completely useless
@@ -103,10 +107,10 @@ impl ControlsElement {
                     widget::button(widget::text(">>"))
                         .on_press(Message::Skip)
                         .width(Length::Shrink),
-                    widget::button(widget::text(match self.looping % 3 {
-                        0 => "loop1",
-                        1 => "loop",
-                        2 => "no loop",
+                    widget::button(widget::text(match self.looping {
+                        audio::Looping::LoopOne => "loop1",
+                        audio::Looping::Loop => "loop",
+                        audio::Looping::None => "no loop",
                         _ => unreachable!(),
                     }))
                     .on_press(Message::LoopingChanged),
@@ -116,13 +120,13 @@ impl ControlsElement {
                 .spacing(20)
                 .width(Length::Fill),
                 widget::row!(
-                    widget::text(format!("{:.1}", location.as_secs_f32())),
+                    widget::text(format!("{}", format_duration(&location))),
                     widget::slider(
                         RangeInclusive::new(0.0, total.as_secs_f64()),
                         location.as_secs_f64(),
                         |_| Message::None(()),
                     ),
-                    iced::widget::text(format!("{:.1}", total.as_secs_f32())),
+                    iced::widget::text(format!("{}", format_duration(&total))),
                 )
                 .align_items(iced::Alignment::Center)
                 .spacing(20)
@@ -130,12 +134,12 @@ impl ControlsElement {
             .align_items(iced::Alignment::Center)
             .width(Length::Fill),
         )
-        .width(Length::FillPortion(5));
+        .width(Length::FillPortion(10));
 
         widget::row!(
             widget::row!(artwork, song_title_user)
                 .spacing(20)
-                .width(Length::FillPortion(2))
+                .width(Length::FillPortion(3))
                 .align_items(iced::Alignment::Center),
             controls,
             widget::container(widget::slider(
@@ -164,8 +168,13 @@ impl ControlsElement {
         self.volume = volume * 100.0;
     }
 
-    pub(crate) fn rotate_looping(&mut self) -> usize {
-        self.looping += 1;
-        self.looping % 3
+    pub(crate) fn rotate_looping(&mut self) -> audio::Looping {
+        self.looping = match self.looping {
+            audio::Looping::None => audio::Looping::LoopOne,
+            audio::Looping::LoopOne => audio::Looping::Loop,
+            audio::Looping::Loop => audio::Looping::None,
+        };
+
+        self.looping
     }
 }
