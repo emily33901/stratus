@@ -111,7 +111,6 @@ impl ControlsElement {
                         audio::Looping::LoopOne => "loop1",
                         audio::Looping::Loop => "loop",
                         audio::Looping::None => "no loop",
-                        _ => unreachable!(),
                     }))
                     .on_press(Message::LoopingChanged),
                     widget::row!().width(Length::FillPortion(1)),
