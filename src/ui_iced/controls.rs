@@ -9,6 +9,8 @@ pub struct ControlsElement {
     cur_song: Option<Arc<model::Song>>,
     player_state: audio::PlayerState,
     volume: f32,
+    // TODO(emily): Terrible, deranged
+    looping: usize,
 }
 
 impl ControlsElement {
@@ -18,6 +20,7 @@ impl ControlsElement {
             options: vec![],
             player_state: Default::default(),
             volume: 100.0,
+            looping: 0,
         }
     }
 
@@ -89,6 +92,7 @@ impl ControlsElement {
                     .map(|s| s.user.username.clone())
                     .unwrap_or_default()
             )
+            .size(13)
         ));
 
         let controls = widget::container(
@@ -99,6 +103,13 @@ impl ControlsElement {
                     widget::button(widget::text(">>"))
                         .on_press(Message::Skip)
                         .width(Length::Shrink),
+                    widget::button(widget::text(match self.looping % 3 {
+                        0 => "loop1",
+                        1 => "loop",
+                        2 => "no loop",
+                        _ => unreachable!(),
+                    }))
+                    .on_press(Message::LoopingChanged),
                     widget::row!().width(Length::FillPortion(1)),
                 )
                 .align_items(iced::Alignment::Center)
@@ -151,5 +162,10 @@ impl ControlsElement {
     pub(crate) fn volume_changed(&mut self, volume: f32) {
         // TODO(emily): See above TODO
         self.volume = volume * 100.0;
+    }
+
+    pub(crate) fn rotate_looping(&mut self) -> usize {
+        self.looping += 1;
+        self.looping % 3
     }
 }

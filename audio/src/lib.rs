@@ -24,6 +24,14 @@ pub enum Playing {
     Paused,
 }
 
+#[derive(Default, Debug, Clone, Copy)]
+pub enum Looping {
+    None,
+    #[default]
+    LoopOne,
+    Loop,
+}
+
 #[async_trait]
 pub trait Downloader: Send + Sync {
     /// Download a chunk of a HLS stream
@@ -50,26 +58,35 @@ enum PlayerControl {
     Seek(usize),
     Queue(SongId),
     QueueMany(Vec<SongId>),
+    Looping(Looping),
 }
 
 #[derive(Debug, Clone)]
 pub struct PlayerState {
     pub playing: Playing,
+    pub looping: Looping,
 
     pub sample_rate: usize,
     /// Number of samples into the track
     pub pos: usize,
     /// total time in seconds
     pub total: f32,
+    /// Index into the queue
+    pub queue_pos_index: Option<usize>,
+    /// Current Song
+    pub cur_song: Option<SongId>,
 }
 
 impl Default for PlayerState {
     fn default() -> Self {
         Self {
             playing: Default::default(),
+            looping: Default::default(),
             sample_rate: 44100,
             pos: Default::default(),
             total: Default::default(),
+            queue_pos_index: None,
+            cur_song: None,
         }
     }
 }
@@ -166,6 +183,10 @@ impl HlsPlayer {
     pub async fn volume(&self, volume: f32) -> Result<()> {
         Ok(self.control.send(PlayerControl::Volume(volume)).await?)
     }
+
+    pub async fn looping(&self, looping: Looping) -> Result<()> {
+        Ok(self.control.send(PlayerControl::Looping(looping)).await?)
+    }
 }
 
 struct SinkStream {
@@ -205,16 +226,19 @@ impl SinkStream {
 
 struct Inner {
     control_rx: mpsc::Receiver<PlayerControl>,
-    downloader: Arc<dyn Downloader>,
     state_tx: Arc<watch::Sender<PlayerState>>,
     loop_control_tx: mpsc::Sender<PlayerControl>,
     cur_song_tx: watch::Sender<Option<SongId>>,
     cur_song_rx: watch::Receiver<Option<SongId>>,
     queued_song_tx: watch::Sender<VecDeque<SongId>>,
-    queue: VecDeque<SongId>,
-    sink_stream: Mutex<SinkStream>,
     finished_signal_tx: mpsc::Sender<()>,
     finished_signal_rx: Option<mpsc::Receiver<()>>,
+
+    sink_stream: Mutex<SinkStream>,
+    downloader: Arc<dyn Downloader>,
+    queue: VecDeque<SongId>,
+    queue_pos_index: Option<usize>,
+    looping: Looping,
 }
 
 impl Inner {
@@ -241,6 +265,8 @@ impl Inner {
             sink_stream: Mutex::new(SinkStream::new()),
             finished_signal_tx,
             finished_signal_rx: Some(finished_signal_rx),
+            queue_pos_index: None,
+            looping: Looping::default(),
         }
     }
 
@@ -314,66 +340,125 @@ impl Inner {
             }
             PlayerControl::Volume(volume) => self.sink_stream.lock().await.set_volume(volume),
             PlayerControl::Seek(_) => todo!(),
+            PlayerControl::Looping(looping) => {
+                self.looping = looping;
+                self.state_tx.send_modify(|state| state.looping = looping);
+            }
         }
     }
 
-    async fn skip_one(&mut self, finished_signal_rx: &mut mpsc::Receiver<()>) {
-        if let Some(queued_song) = self.queue.pop_front() {
-            // Resend the updated queue
-            self.queued_song_tx.send_modify(|queue| {
-                queue.pop_front();
-            });
-
-            // Ask for the playlist AOT
-            let playlist = self.downloader.media_playlist(queued_song).await.unwrap();
-
-            // Calculate the total length of the track
-            let total = playlist.segments.iter().map(|x| x.duration).sum::<f32>();
-
-            // Reset sink
-            self.reset_sink().await;
-            // If we got a finished signal then consume it
-            finished_signal_rx
-                .try_recv()
-                .map(|_| info!("Consumed a finished signal"))
-                .unwrap_or_else(|_| {
-                    info!("No finished signal to consume");
-                    ()
-                });
-
-            // Tell everyone that we are playing a new track
-            self.cur_song_tx.send(Some(queued_song)).unwrap();
-
-            let chunk_rx = self.download_hls_segments(playlist).await;
-
-            match HlsDecoder::new(chunk_rx, &self.finished_signal_tx).await {
-                Ok(source) => {
-                    let state_tx = self.state_tx.clone();
-                    let source =
-                        source.periodic_access(time::Duration::from_millis(100), move |source| {
-                            state_tx.send_modify(|state| {
-                                state.playing = Playing::Playing;
-                                (state.sample_rate, state.pos, state.total) =
-                                    (source.sample_rate() as usize, source.samples(), total);
-                            });
-                        });
-
-                    let sink = self.sink().await;
-                    sink.append(source);
-                    sink.play();
-                }
-                Err(err) => {
-                    warn!("Failed to get first chunks of HlsDecoder {:?}", err);
-                    self.loop_control_tx
-                        .send(PlayerControl::SkipOne)
-                        .await
-                        .unwrap();
+    async fn next_track(&mut self) -> Option<usize> {
+        // First, if we are not currently queuing anything
+        // then just try index 0
+        match self.queue_pos_index {
+            None => {
+                if self.queue.len() != 0 {
+                    self.queue_pos_index = Some(0);
                 }
             }
-        } else {
-            // Nothing in queue so reset sink and inform everyone
-            self.reset_sink().await;
-            self.cur_song_tx.send(None).unwrap();
+            Some(queue_pos_index) => {
+                match self.looping {
+                    Looping::None => {
+                        // Try the next track, if there is no next track then None
+                        let new_index = queue_pos_index + 1;
+                        if new_index >= self.queue.len() {
+                            // We are at the end of the queue
+                            self.queue_pos_index = None;
+                        } else {
+                            self.queue_pos_index = Some(new_index);
+                        }
+                    }
+                    Looping::LoopOne => {
+                        // Do nothing, queue pos index is the same
+                        // TODO(emily): We probably want to distinguish between intent skip,
+                        // versus auto-skip
+                    }
+                    Looping::Loop => {
+                        let new_index = queue_pos_index + 1;
+                        if new_index >= self.queue.len() {
+                            // We are at the end of the queue, so loop round
+                            self.queue_pos_index = Some(0);
+                        } else {
+                            self.queue_pos_index = Some(new_index);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.queue_pos_index
+    }
+
+    async fn skip_one(&mut self, finished_signal_rx: &mut mpsc::Receiver<()>) {
+        match self.next_track().await {
+            Some(index) => {
+                let queued_song = self.queue[index];
+
+                // Ask for the playlist AOT
+                let playlist = self.downloader.media_playlist(queued_song).await.unwrap();
+
+                // Calculate the total length of the track
+                let total = playlist.segments.iter().map(|x| x.duration).sum::<f32>();
+
+                // Reset sink
+                self.reset_sink().await;
+                // If we got a finished signal then consume it
+                finished_signal_rx
+                    .try_recv()
+                    .map(|_| info!("Consumed a finished signal"))
+                    .unwrap_or_else(|_| {
+                        info!("No finished signal to consume");
+                        ()
+                    });
+
+                self.state_tx.send_modify(|state| {
+                    state.queue_pos_index = Some(index);
+                    state.cur_song = Some(queued_song);
+                });
+
+                // Tell everyone that we are playing a new track
+                self.cur_song_tx.send(Some(queued_song)).unwrap();
+
+                let chunk_rx = self.download_hls_segments(playlist).await;
+
+                match HlsDecoder::new(chunk_rx, &self.finished_signal_tx).await {
+                    Ok(source) => {
+                        let state_tx = self.state_tx.clone();
+                        let source = source.periodic_access(
+                            time::Duration::from_millis(100),
+                            move |source| {
+                                state_tx.send_modify(|state| {
+                                    state.playing = Playing::Playing;
+                                    (state.sample_rate, state.pos, state.total) =
+                                        (source.sample_rate() as usize, source.samples(), total);
+                                });
+                            },
+                        );
+
+                        let sink = self.sink().await;
+                        sink.append(source);
+                        sink.play();
+                    }
+                    Err(err) => {
+                        warn!("Failed to get first chunks of HlsDecoder {:?}", err);
+                        self.loop_control_tx
+                            .send(PlayerControl::SkipOne)
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+            None => {
+                // Nothing in queue so reset sink and inform everyone
+                self.reset_sink().await;
+
+                self.state_tx.send_modify(|state| {
+                    state.queue_pos_index = None;
+                    state.cur_song = None;
+                });
+
+                self.cur_song_tx.send(None).unwrap();
+            }
         }
     }
 

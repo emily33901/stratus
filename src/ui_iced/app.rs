@@ -102,6 +102,7 @@ pub enum Message {
     NavigateForward,
     NavigateBack,
     QueuePlaylist,
+    LoopingChanged,
     Resume,
     Pause,
     Skip,
@@ -283,6 +284,26 @@ impl Application for App {
                 }
                 Command::none()
             }
+            Message::LoopingChanged => {
+                // Get looping from controls
+                let looping = self.controls.rotate_looping();
+                // Tell player
+                let player = self.player.clone();
+                Command::perform(
+                    async move {
+                        player
+                            .looping(match looping {
+                                0 => audio::Looping::LoopOne,
+                                1 => audio::Looping::Loop,
+                                2 => audio::Looping::None,
+                                _ => unreachable!(),
+                            })
+                            .await
+                            .unwrap();
+                    },
+                    Message::None,
+                )
+            }
         }
     }
 
@@ -306,12 +327,15 @@ impl Application for App {
                 Page::Playlist(playlist_page) => playlist_page.view(),
                 Page::User(user_page) => user_page.view(),
             })
-            .padding(10)
             .height(iced::Length::FillPortion(1)),
-            widget::container(self.controls.view()).padding(10),
+            widget::container(widget::column!(
+                widget::row!().height(iced::Length::Fixed(10.0)),
+                self.controls.view()
+            )),
         ))
         .width(iced::Length::Fill)
         .height(iced::Length::Fill)
+        .padding(10)
         .center_x()
         .center_y()
         .into()

@@ -153,6 +153,16 @@ impl Store {
             .await?)
     }
 
+    pub async fn songs(&self, id: &Id) -> Result<Arc<Playlist>> {
+        Ok(self
+            .likes_cache
+            .get(id, async {
+                let sc_playlist = self.soundcloud.songs(sc::Id::Id(*id)).await?;
+                self.resolve_sc_playlist(sc_playlist).await
+            })
+            .await?)
+    }
+
     pub async fn song(&self, id: &Id) -> Result<Arc<Song>> {
         Ok(self
             .song_cache

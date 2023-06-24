@@ -334,10 +334,10 @@ pub mod api {
             })
         }
 
-        pub async fn songs(&self, client: &reqwest::Client) -> Result<Option<model::Playlist>> {
+        pub async fn songs(&self, client: &reqwest::Client) -> Result<model::Playlist> {
             let endpoint = Endpoint {
                 endpoint: format!("users/{}/tracks", self.object.id),
-                params: Some(vec![("limit".into(), "50".into())]),
+                params: Some(vec![("limit".into(), "8000".into())]),
                 ..Default::default()
             };
 
@@ -346,9 +346,9 @@ pub mod api {
                 collection: Vec<serde_json::Value>,
             }
 
-            let songs: Option<Songs> = object(client, endpoint).await?;
+            let songs: Songs = object(client, endpoint).await?;
             let id = next_fake_id();
-            Ok(songs.map(|songs| model::Playlist {
+            Ok(model::Playlist {
                 object: Object {
                     id,
                     kind: "songs".into(),
@@ -359,7 +359,7 @@ pub mod api {
                 user: self.object.clone(),
                 songs: songs.collection.into_iter().map(|x| x).collect(),
                 title: format!("Tracks by {}", self.username),
-            }))
+            })
         }
     }
 
@@ -450,6 +450,11 @@ impl SoundCloud {
     pub async fn likes(&self, id: Id<'_>) -> Result<Playlist> {
         let user = self.user(id).await?;
         Ok(user.likes(&self.client).await?)
+    }
+
+    pub async fn songs(&self, id: Id<'_>) -> Result<Playlist> {
+        let user = self.user(id).await?;
+        Ok(user.songs(&self.client).await?)
     }
 
     pub async fn url(&self, url: &str) -> Result<Object> {
