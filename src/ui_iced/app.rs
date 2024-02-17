@@ -95,6 +95,7 @@ pub enum Message {
     UserClicked(Arc<model::User>),
     PlaylistClicked(Arc<model::Playlist>),
     SongQueue(Arc<model::Song>),
+    SongPlay(Arc<model::Song>),
     PlaylistFilterChange(String),
     PageChange(isize),
     PageScroll(f32),
@@ -162,6 +163,7 @@ impl Application for App {
             Message::None(_) | Message::Tick | Message::PlayerState(_) => Command::none(),
             Message::PlaylistResolved(playlist) => self.playlist_loaded(playlist),
             Message::SongQueue(song) => self.queue_song(&song),
+            Message::SongPlay(song) => self.queue_song(&song),
             Message::Resume => {
                 let player = self.player.clone();
                 Command::perform(
@@ -364,21 +366,14 @@ impl App {
     }
 
     fn queue_song(&self, song: &Arc<model::Song>) -> iced::Command<Message> {
-        for media in song.media.clone().transcodings {
-            if media.format.mime_type == "audio/mpeg" {
-                let player = self.player.clone();
-                let id = song.id;
-                return Command::perform(
-                    async move {
-                        player.queue(id).await.unwrap();
-                    },
-                    Message::None,
-                );
-            }
-        }
-        warn!("No transcoding available for song {}?", &song.title);
-
-        Command::none()
+        let player = self.player.clone();
+        let id = song.id;
+        Command::perform(
+            async move {
+                player.queue(id).await.unwrap();
+            },
+            Message::None,
+        )
     }
 
     fn playlist_filter_changed(&mut self, string: &str) -> iced::Command<Message> {

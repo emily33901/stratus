@@ -7,6 +7,7 @@ use iced::Element;
 
 use crate::model;
 
+use iced::widget::Component;
 
 use super::{app::Message, song::Song};
 
@@ -100,20 +101,12 @@ impl SongList {
     }
 
     pub fn update_filter(&mut self, str: &str) -> Command<Message> {
-        let matcher = SkimMatcherV2::default();
-
         let str = str.to_owned();
 
-        let song_list: HashMap<model::Id, (String, String)> = self
+        let song_list: Vec<Song> = self
             .song_list
             .iter()
-            .map(|(k, v)| (k, (&v.song)))
-            .map(|(k, song)| {
-                (
-                    k.clone(),
-                    (song.title().to_owned(), song.username().to_owned()),
-                )
-            })
+            .map(|(id, holder)| holder.song.clone())
             .collect();
 
         if str.len() < 1 {
@@ -121,7 +114,7 @@ impl SongList {
                 async move {
                     song_list
                         .iter()
-                        .map(|(k, _v)| (k.clone(), Display::default()))
+                        .map(|song| (song.model().id, Display::default()))
                         .collect()
                 },
                 Message::SongListFilterComputed,
@@ -131,17 +124,11 @@ impl SongList {
                 async move {
                     song_list
                         .iter()
-                        .map(|(k, (title, username))| {
-                            (k.clone(), {
-                                let title_score = matcher.fuzzy_match(title, &str);
-                                let username_score = matcher.fuzzy_match(username, &str);
-                                if title_score.is_none() && username_score.is_none() {
-                                    Display::Hidden
-                                } else {
-                                    Display::Show(
-                                        title_score.unwrap_or_default()
-                                            + username_score.unwrap_or_default(),
-                                    )
+                        .map(|song| {
+                            (song.model().id, {
+                                match song.match_score(&str) {
+                                    Some(score) => Display::Show(score),
+                                    None => Display::Hidden,
                                 }
                             })
                         })

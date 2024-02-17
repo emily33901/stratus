@@ -24,7 +24,7 @@ fn main() -> std::result::Result<(), Box<dyn Error>> {
                 message
             ))
         })
-        .level(log::LevelFilter::Info)
+        .level(log::LevelFilter::Warn)
         .chain(std::io::stderr())
         .apply()?;
 
